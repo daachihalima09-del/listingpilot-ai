@@ -187,10 +187,6 @@ The output is editable, exportable, and designed to fit directly into a Shopify 
 
 ![Generated Listing](docs/images/generated-listing.png)
 
-### Generated Shopify Content
-
-![Generated Listing](docs/images/generated-listing.png)
-
 ## 📦 Shopify Export
 
 After the listing has been reviewed, it can be exported as a Shopify-ready CSV.
