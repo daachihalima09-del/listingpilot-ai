@@ -44,8 +44,6 @@ ListingPilot AI transforms raw supplier specifications into verified, publicatio
 
 ![ListingPilot AI Dashboard](docs/images/dashboard.png)
 
----
-
 # 🚨 The Problem
 
 Every product listing requires merchants to:
@@ -184,6 +182,10 @@ The generated content includes:
 - Search Tags
 
 The output is editable, exportable, and designed to fit directly into a Shopify product workflow.
+
+### Generated Shopify Content
+
+![Generated Listing](docs/images/generated-listing.png)
 
 ### Generated Shopify Content
 
