@@ -1,0 +1,57 @@
+import type { DemoProduct } from '@/types/product';
+
+export const demoProduct: DemoProduct = {
+  brand: 'Samsung',
+  model: 'Q80D',
+  panel: 'QLED',
+  hdr: 'HDR10+',
+  refreshRate: '120Hz',
+  resolution: '4K UHD',
+  smartPlatform: 'Tizen OS',
+  warranty: 'missing',
+  truthRows: [
+    { field: 'Brand', value: 'Samsung', source: 'Samsung Official Website', sourcesCount: 4, confidence: 98, status: 'Verified' },
+    { field: 'Model', value: 'Q80D', source: 'Samsung Product Page', sourcesCount: 4, confidence: 97, status: 'Verified' },
+    { field: 'Panel', value: 'QLED', source: 'Samsung Official Website', sourcesCount: 3, confidence: 95, status: 'Verified' },
+    { field: 'HDR', value: 'HDR10+', source: 'Samsung Official Website', sourcesCount: 2, confidence: 94, status: 'Verified' },
+    { field: 'Refresh Rate', value: '120Hz', source: 'Samsung Official Website', sourcesCount: 3, confidence: 90, status: 'Conflict' },
+    { field: 'Resolution', value: '4K UHD', source: 'Samsung Official Website', sourcesCount: 4, confidence: 96, status: 'Verified' },
+    { field: 'Smart Platform', value: 'Tizen OS', source: 'Samsung Official Website', sourcesCount: 3, confidence: 93, status: 'Verified' },
+    { field: 'Warranty', value: 'Missing', source: 'No verified source', sourcesCount: 0, confidence: 0, status: 'Missing' },
+  ],
+  sources: [
+    { name: 'Samsung Official Website', type: 'Official', confidence: 98, status: 'Official' },
+    { name: 'Samsung Product Page', type: 'Official', confidence: 96, status: 'Official' },
+    { name: 'Amazon Product Page', type: 'Retailer', confidence: 71, status: 'Retailer' },
+    { name: 'LG Official Website', type: 'Official', confidence: 94, status: 'Official' },
+    { name: 'Best Buy Product Page', type: 'Retailer', confidence: 82, status: 'Retailer' },
+    { name: 'RTINGS.com Review', type: 'Review', confidence: 88, status: 'Review' },
+  ],
+  conflict: {
+    label: 'Refresh Rate',
+    official: '120Hz',
+    amazon: '144Hz',
+    lg: '120Hz',
+    recommendation: 'Use Samsung Official Specification',
+    recommendedValue: '120Hz',
+    explanation: 'The official manufacturer value matches another independent trusted source.',
+  },
+  catalogHealth: {
+    score: 96,
+    label: 'Excellent',
+    items: [
+      { name: 'Specifications', status: 'good' },
+      { name: 'Description', status: 'good' },
+      { name: 'SEO', status: 'good' },
+      { name: 'Images', status: 'good' },
+      { name: 'Variants', status: 'good' },
+      { name: 'Filters', status: 'good' },
+      { name: 'Warranty warning', status: 'warning' },
+    ],
+  },
+  analyses: [
+    { title: 'Samsung Q80D 55" 4K QLED TV', status: 'Completed', score: 96 },
+    { title: 'Dyson V15 Detect Absolute', status: 'Review', score: 89 },
+    { title: 'Sony WH-1000XM5 Headphones', status: 'Completed', score: 94 },
+  ],
+};
