@@ -288,6 +288,40 @@ ListingPilot AI was developed during **OpenAI Build Week 2026** as an exploratio
 The project demonstrates how structured AI reasoning can be combined with content generation to help merchants publish products more accurately and efficiently.
 
 ---
+## Tech Stack
+
+- Next.js
+- React
+- TypeScript
+- Tailwind CSS
+- OpenAI
+- Vercel
+
+## Future Roadmap
+
+- Multi-language support
+- Shopify App integration
+- Bulk catalog analysis
+- AI image generation
+
+---
+
+# Built with OpenAI
+
+ListingPilot AI was developed during **OpenAI Build Week 2026** using both **Codex** and **GPT-5.6** throughout the project.
+
+### Codex
+- Built and implemented application features
+- Assisted with debugging and refactoring
+- Accelerated frontend development
+- Helped integrate and polish the application
+
+### GPT-5.6
+- Designed the overall product concept and workflow
+- Refined the user experience and interface
+- Helped design Product Truth, AI Detective, and Catalog Health
+- Created product listing templates and prompts
+- Assisted with documentation, README, and presentation
 
 # 📄 License
 
