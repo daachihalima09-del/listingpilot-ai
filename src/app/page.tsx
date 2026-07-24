@@ -2,7 +2,7 @@
 
 import { Download, Sparkles } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AIDetective } from '@/components/workspace/AIDetective';
 import { ActivityTimeline } from '@/components/workspace/ActivityTimeline';
 import { CatalogHealth } from '@/components/workspace/CatalogHealth';
@@ -15,7 +15,7 @@ import { Sidebar } from '@/components/workspace/Sidebar';
 import { SourceEvidence } from '@/components/workspace/SourceEvidence';
 import { demoProduct } from '@/data/demo-product';
 import type { ProductAnalysis } from '@/lib/analysis-schema';
-import { createDemoAnalysisContext, isPdfFileName, isValidHttpUrl, normalizePastedHttpUrl, type DemoAnalysisContext, type DemoAnalysisInput } from '@/lib/demo-analysis-adapter';
+import { isPdfFileName, isValidHttpUrl, normalizePastedHttpUrl, type DemoAnalysisContext, type DemoAnalysisInput } from '@/lib/demo-analysis-adapter';
 import { buildShopifyCsv } from '@/lib/shopify-csv';
 import type { DemoProduct, PipelineStage, TruthRow } from '@/types/product';
 
@@ -33,6 +33,8 @@ const demoSpecs = [
   'Key claims: Premium 4K QLED display with verified features and a refined product narrative.',
 ].join('\n');
 
+class AnalysisRequestError extends Error {}
+
 function buildListingContent(product: DemoProduct = demoProduct) {
   return {
     title: `${product.brand} ${product.model} 4K QLED TV`,
@@ -49,22 +51,13 @@ function buildListingContent(product: DemoProduct = demoProduct) {
   };
 }
 
-function buildDemoProductForInput(input: Exclude<DemoAnalysisInput, { kind: 'raw-specifications' }>): DemoProduct {
-  const submittedSource = input.kind === 'uploaded-pdf'
-    ? {
-        name: input.filename,
-        type: 'Uploaded PDF · Demo Mode',
-      }
-    : {
-        name: input.url,
-        type: `${input.kind === 'supplier-url' ? 'Supplier' : 'Product'} URL · Demo Mode`,
-      };
-
+function buildUploadedPdfDemoProduct(filename: string): DemoProduct {
   return {
     ...demoProduct,
     sources: [
       {
-        ...submittedSource,
+        name: filename,
+        type: 'Uploaded PDF · Demo Mode',
         confidence: 100,
         status: 'Review',
       },
@@ -131,6 +124,7 @@ function buildAnalyzedProduct(analysis: ProductAnalysis, source: AnalysisSourceO
 }
 
 export default function HomePage() {
+  const analysisRequestRef = useRef<AbortController | null>(null);
   const [inputMode, setInputMode] = useState<'url' | 'product' | 'specs' | 'pdf'>('specs');
   const [analysisStarted, setAnalysisStarted] = useState(false);
   const [activeStage, setActiveStage] = useState<PipelineStage>('input');
@@ -167,6 +161,10 @@ export default function HomePage() {
     mediaQuery.addEventListener('change', updatePreference);
 
     return () => mediaQuery.removeEventListener('change', updatePreference);
+  }, []);
+
+  useEffect(() => () => {
+    analysisRequestRef.current?.abort();
   }, []);
 
   useEffect(() => {
@@ -320,6 +318,10 @@ export default function HomePage() {
   };
 
   const handleAnalyze = async () => {
+    if (analysisRequestRef.current || isRunning) {
+      return;
+    }
+
     const analysisInput = getAnalysisInput();
     if (!analysisInput) {
       return;
@@ -328,62 +330,100 @@ export default function HomePage() {
     setInputError(null);
     resetAnalysisResults();
 
-    const useLiveAnalysis = analysisInput.kind === 'raw-specifications' && !useDemoFallback;
+    const useLiveAnalysis = analysisInput.kind !== 'uploaded-pdf'
+      && (analysisInput.kind !== 'raw-specifications' || !useDemoFallback);
 
     if (!useLiveAnalysis) {
       const demoAnalysisProduct = analysisInput.kind === 'raw-specifications'
         ? demoProduct
-        : buildDemoProductForInput(analysisInput);
+        : buildUploadedPdfDemoProduct(analysisInput.filename);
       startPipeline(
         demoAnalysisProduct,
         buildListingContent(demoAnalysisProduct),
-        useDemoFallback && analysisInput.kind === 'raw-specifications'
+        analysisInput.kind === 'raw-specifications'
           ? {
               sourceLabel: 'Raw specifications',
               notice: 'Deterministic demo analysis loaded as a fallback',
             }
-          : createDemoAnalysisContext(analysisInput),
+          : {
+              sourceLabel: 'Uploaded PDF',
+              notice: `Demo Mode — live PDF extraction coming soon. Demo analysis generated from uploaded PDF: ${analysisInput.filename}`,
+            },
       );
       return;
     }
 
     setIsSubmitting(true);
+    const requestController = new AbortController();
+    analysisRequestRef.current = requestController;
+    const requestTimeout = window.setTimeout(() => requestController.abort(), 85_000);
+
     try {
-      const requestBody = { source: 'raw-specifications' as const, specifications: specText.trim() };
+      const requestBody = analysisInput.kind === 'raw-specifications'
+        ? { source: 'raw-specifications' as const, specifications: specText.trim() }
+        : { source: analysisInput.kind, url: analysisInput.url };
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
+        signal: requestController.signal,
       });
-      const payload = await response.json() as ProductAnalysis | { error?: string };
+      let payload: ProductAnalysis | { error?: string };
+      try {
+        const decodedPayload = await response.json() as unknown;
+        if (!decodedPayload || typeof decodedPayload !== 'object' || Array.isArray(decodedPayload)) {
+          throw new Error('INVALID_RESPONSE');
+        }
+        payload = decodedPayload as ProductAnalysis | { error?: string };
+      } catch {
+        throw new AnalysisRequestError('The analysis service returned an invalid response. Please try again.');
+      }
 
       if (!response.ok || 'error' in payload) {
-        throw new Error('error' in payload && payload.error
+        throw new AnalysisRequestError('error' in payload && payload.error
           ? payload.error
-          : 'Unable to analyze the specifications.');
+          : 'Unable to analyze the product input.');
       }
 
       const analysis = payload as ProductAnalysis;
+      const sourceName = analysisInput.kind === 'raw-specifications'
+        ? 'Pasted specifications'
+        : analysisInput.url;
+      const sourceType = analysisInput.kind === 'raw-specifications'
+        ? 'User input'
+        : analysisInput.kind === 'supplier-url' ? 'Supplier URL' : 'Product URL';
       const product = buildAnalyzedProduct(
         analysis,
         {
-          name: 'Pasted specifications',
-          type: 'User input',
-          noConflictExplanation: 'No conflicting values were found in the pasted specifications.',
+          name: sourceName,
+          type: sourceType,
+          noConflictExplanation: `No conflicting values were found in the ${sourceType.toLowerCase()}.`,
         },
       );
       startPipeline(
         product,
         analysis.listing,
         {
-          sourceLabel: 'Raw specifications',
-          notice: 'OpenAI analysis generated from the supplied raw specifications',
+          sourceLabel: analysisInput.kind === 'raw-specifications'
+            ? 'Raw specifications'
+            : analysisInput.kind === 'supplier-url' ? 'Supplier URL' : 'Product URL',
+          notice: analysisInput.kind === 'raw-specifications'
+            ? 'OpenAI analysis generated from the supplied raw specifications'
+            : `OpenAI analysis generated from the extracted ${sourceType.toLowerCase()}`,
         },
       );
     } catch (error) {
-      setInputError(error instanceof Error ? error.message : 'Unable to analyze the specifications.');
+      setInputError(error instanceof Error && error.name === 'AbortError'
+        ? 'The analysis request timed out. Please try again.'
+        : error instanceof AnalysisRequestError
+          ? error.message
+          : 'Unable to analyze the product input. Please try again.');
     } finally {
-      setIsSubmitting(false);
+      window.clearTimeout(requestTimeout);
+      if (analysisRequestRef.current === requestController) {
+        analysisRequestRef.current = null;
+        setIsSubmitting(false);
+      }
     }
   };
 

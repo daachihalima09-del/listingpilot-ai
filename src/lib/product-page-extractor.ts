@@ -1,7 +1,10 @@
 import 'server-only';
 
+import type { LookupAddress } from 'node:dns';
 import { lookup } from 'node:dns/promises';
-import { isIP } from 'node:net';
+import { request as httpRequest, type IncomingHttpHeaders, type IncomingMessage } from 'node:http';
+import { request as httpsRequest } from 'node:https';
+import { isIP, type LookupFunction } from 'node:net';
 
 const MAX_REDIRECTS = 3;
 const MAX_HTML_BYTES = 2_000_000;
@@ -9,7 +12,10 @@ const MAX_EXTRACTED_CHARACTERS = 60_000;
 const FETCH_TIMEOUT_MS = 20_000;
 
 export class ProductPageExtractionError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly status: 422 | 502 | 504 = 422,
+  ) {
     super(message);
     this.name = 'ProductPageExtractionError';
   }
@@ -28,30 +34,36 @@ function isPrivateIpv4(address: string) {
     || (first === 100 && second >= 64 && second <= 127)
     || (first === 169 && second === 254)
     || (first === 172 && second >= 16 && second <= 31)
-    || (first === 192 && second === 0)
+    || (first === 192 && second === 0 && parts[2] === 0)
+    || (first === 192 && second === 0 && parts[2] === 2)
     || (first === 192 && second === 168)
     || (first === 198 && (second === 18 || second === 19))
+    || (first === 198 && second === 51 && parts[2] === 100)
+    || (first === 203 && second === 0 && parts[2] === 113)
     || first >= 224;
 }
 
 function isPrivateIp(address: string) {
-  if (isIP(address) === 4) {
+  const ipVersion = isIP(address);
+  if (ipVersion === 4) {
     return isPrivateIpv4(address);
   }
 
-  const normalized = address.toLowerCase();
+  const normalized = address.toLowerCase().replace(/^\[|\]$/g, '');
   if (normalized.startsWith('::ffff:')) {
     return isPrivateIpv4(normalized.slice(7));
   }
 
-  return normalized === '::'
-    || normalized === '::1'
-    || normalized.startsWith('fc')
-    || normalized.startsWith('fd')
-    || /^fe[89ab]/.test(normalized);
+  const isSpecialPurpose = normalized.startsWith('2001:0:')
+    || normalized.startsWith('2001:db8:')
+    || normalized.startsWith('2002:');
+
+  // Restrict outbound requests to globally routable IPv6 unicast addresses
+  // while excluding common documentation and transition ranges.
+  return ipVersion !== 6 || !/^[23]/.test(normalized) || isSpecialPurpose;
 }
 
-async function assertSafePublicUrl(url: URL) {
+async function resolveSafePublicUrl(url: URL): Promise<LookupAddress[]> {
   if (!['http:', 'https:'].includes(url.protocol)) {
     throw new ProductPageExtractionError('Enter a public product URL beginning with http:// or https://.');
   }
@@ -64,56 +76,90 @@ async function assertSafePublicUrl(url: URL) {
     throw new ProductPageExtractionError('Product URLs must use the standard HTTP or HTTPS port.');
   }
 
-  const hostname = url.hostname.toLowerCase().replace(/\.$/, '');
+  const hostname = url.hostname.toLowerCase().replace(/\.$/, '').replace(/^\[|\]$/g, '');
   if (hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local')) {
     throw new ProductPageExtractionError('Private or local product URLs are not supported.');
   }
 
   const addresses = isIP(hostname)
-    ? [{ address: hostname }]
+    ? [{ address: hostname, family: isIP(hostname) }]
     : await lookup(hostname, { all: true, verbatim: true });
 
   if (!addresses.length || addresses.some(({ address }) => isPrivateIp(address))) {
     throw new ProductPageExtractionError('Private or local product URLs are not supported.');
   }
+
+  return addresses;
 }
 
-async function readLimitedHtml(response: Response) {
-  const declaredLength = Number(response.headers.get('content-length'));
+function getHeader(headers: IncomingHttpHeaders, name: string) {
+  const value = headers[name];
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function createPinnedLookup(addresses: LookupAddress[]): LookupFunction {
+  return (_hostname, options, callback) => {
+    const matchingAddresses = options.family
+      ? addresses.filter(({ family }) => family === options.family)
+      : addresses;
+    if (!matchingAddresses.length) {
+      const error = new Error('No validated address matches the requested address family.') as NodeJS.ErrnoException;
+      error.code = 'ENOTFOUND';
+      callback(error, '', 0);
+      return;
+    }
+
+    if (options.all) {
+      callback(null, matchingAddresses);
+      return;
+    }
+
+    const selectedAddress = matchingAddresses[0];
+    callback(null, selectedAddress.address, selectedAddress.family);
+  };
+}
+
+function requestPage(url: URL, addresses: LookupAddress[], signal: AbortSignal) {
+  const request = url.protocol === 'https:' ? httpsRequest : httpRequest;
+
+  return new Promise<IncomingMessage>((resolve, reject) => {
+    const outgoingRequest = request(url, {
+      method: 'GET',
+      headers: {
+        Accept: 'text/html,application/xhtml+xml',
+        'Accept-Encoding': 'identity',
+        'User-Agent': 'Mozilla/5.0 (compatible; ListingPilot/1.0; product-catalog-analyzer)',
+      },
+      lookup: createPinnedLookup(addresses),
+      signal,
+    }, resolve);
+
+    outgoingRequest.once('error', reject);
+    outgoingRequest.end();
+  });
+}
+
+async function readLimitedHtml(response: IncomingMessage) {
+  const declaredLength = Number(getHeader(response.headers, 'content-length'));
   if (Number.isFinite(declaredLength) && declaredLength > MAX_HTML_BYTES) {
+    response.destroy();
     throw new ProductPageExtractionError('This product page is too large to analyze safely.');
   }
 
-  if (!response.body) {
-    throw new ProductPageExtractionError('The product page returned no readable content.');
-  }
-
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
+  const chunks: Buffer[] = [];
   let totalBytes = 0;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
-    }
-
-    totalBytes += value.byteLength;
+  for await (const chunk of response) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    totalBytes += buffer.byteLength;
     if (totalBytes > MAX_HTML_BYTES) {
-      await reader.cancel();
+      response.destroy();
       throw new ProductPageExtractionError('This product page is too large to analyze safely.');
     }
-    chunks.push(value);
+    chunks.push(buffer);
   }
 
-  const htmlBytes = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    htmlBytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-
-  return new TextDecoder().decode(htmlBytes);
+  return Buffer.concat(chunks, totalBytes).toString('utf8');
 }
 
 function decodeHtmlEntities(value: string) {
@@ -130,7 +176,9 @@ function decodeHtmlEntities(value: string) {
     if (code.startsWith('#')) {
       const isHex = code[1]?.toLowerCase() === 'x';
       const numericCode = Number.parseInt(code.slice(isHex ? 2 : 1), isHex ? 16 : 10);
-      return Number.isFinite(numericCode) ? String.fromCodePoint(numericCode) : entity;
+      return Number.isFinite(numericCode) && numericCode >= 0 && numericCode <= 0x10ffff
+        ? String.fromCodePoint(numericCode)
+        : entity;
     }
     return namedEntities[code.toLowerCase()] ?? entity;
   });
@@ -256,7 +304,7 @@ function buildExtractedPageText(html: string, finalUrl: string) {
   return extracted.slice(0, MAX_EXTRACTED_CHARACTERS);
 }
 
-export async function extractProductPage(urlValue: string) {
+export async function extractProductPage(urlValue: string, requestSignal?: AbortSignal) {
   let currentUrl: URL;
   try {
     currentUrl = new URL(urlValue);
@@ -264,37 +312,35 @@ export async function extractProductPage(urlValue: string) {
     throw new ProductPageExtractionError('Enter a valid product URL beginning with http:// or https://.');
   }
 
-  for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
-    await assertSafePublicUrl(currentUrl);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const abortForRequest = () => controller.abort();
+  requestSignal?.addEventListener('abort', abortForRequest, { once: true });
 
-    try {
-      const response = await fetch(currentUrl, {
-        cache: 'no-store',
-        redirect: 'manual',
-        headers: {
-          Accept: 'text/html,application/xhtml+xml',
-          'User-Agent': 'Mozilla/5.0 (compatible; ListingPilot/1.0; product-catalog-analyzer)',
-        },
-        signal: controller.signal,
-      });
+  try {
+    for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
+      const addresses = await resolveSafePublicUrl(currentUrl);
+      const response = await requestPage(currentUrl, addresses, controller.signal);
+      const statusCode = response.statusCode ?? 0;
 
-      if (response.status >= 300 && response.status < 400) {
-        const location = response.headers.get('location');
+      if (statusCode >= 300 && statusCode < 400) {
+        const location = getHeader(response.headers, 'location');
+        response.destroy();
         if (!location || redirectCount === MAX_REDIRECTS) {
-          throw new ProductPageExtractionError('The product page redirected too many times.');
+          throw new ProductPageExtractionError('The product page redirected too many times.', 502);
         }
         currentUrl = new URL(location, currentUrl);
         continue;
       }
 
-      if (!response.ok) {
-        throw new ProductPageExtractionError(`The product page could not be read (HTTP ${response.status}).`);
+      if (statusCode < 200 || statusCode >= 300) {
+        response.destroy();
+        throw new ProductPageExtractionError(`The product page could not be read (HTTP ${statusCode}).`, 502);
       }
 
-      const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
+      const contentType = getHeader(response.headers, 'content-type')?.toLowerCase() ?? '';
       if (!contentType.includes('text/html') && !contentType.includes('application/xhtml+xml')) {
+        response.destroy();
         throw new ProductPageExtractionError('The supplied URL did not return an HTML product page.');
       }
 
@@ -303,18 +349,19 @@ export async function extractProductPage(urlValue: string) {
         finalUrl: currentUrl.href,
         pageText: buildExtractedPageText(html, currentUrl.href),
       };
-    } catch (error) {
-      if (error instanceof ProductPageExtractionError) {
-        throw error;
-      }
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new ProductPageExtractionError('The product page took too long to respond.');
-      }
-      throw new ProductPageExtractionError('The product page could not be reached from the server.');
-    } finally {
-      clearTimeout(timeout);
     }
-  }
 
-  throw new ProductPageExtractionError('The product page redirected too many times.');
+    throw new ProductPageExtractionError('The product page redirected too many times.', 502);
+  } catch (error) {
+    if (error instanceof ProductPageExtractionError) {
+      throw error;
+    }
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new ProductPageExtractionError('The product page took too long to respond.', 504);
+    }
+    throw new ProductPageExtractionError('The product page could not be reached from the server.', 502);
+  } finally {
+    clearTimeout(timeout);
+    requestSignal?.removeEventListener('abort', abortForRequest);
+  }
 }

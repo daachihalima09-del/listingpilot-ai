@@ -34,33 +34,3 @@ export function normalizePastedHttpUrl(value: string) {
 export function isPdfFileName(filename: string) {
   return filename.toLowerCase().endsWith('.pdf');
 }
-
-/**
- * Build Week adapter: records where the request came from, then routes every
- * supported input through the existing deterministic Samsung Q80D workflow.
- * Replace this boundary with real extractors when those services are added.
- */
-export function createDemoAnalysisContext(input: DemoAnalysisInput): DemoAnalysisContext {
-  switch (input.kind) {
-    case 'supplier-url':
-      return {
-        sourceLabel: 'Supplier URL',
-        notice: 'Demo Mode — live page extraction coming soon. The submitted URL is retained as source evidence.',
-      };
-    case 'product-url':
-      return {
-        sourceLabel: 'Product URL',
-        notice: 'Demo Mode — live page extraction coming soon. The submitted URL is retained as source evidence.',
-      };
-    case 'uploaded-pdf':
-      return {
-        sourceLabel: 'Uploaded PDF',
-        notice: `Demo Mode — live PDF extraction coming soon. Demo analysis generated from uploaded PDF: ${input.filename}`,
-      };
-    case 'raw-specifications':
-      return {
-        sourceLabel: 'Raw specifications',
-        notice: 'Analysis generated from the supplied raw specifications',
-      };
-  }
-}

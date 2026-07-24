@@ -62,7 +62,6 @@ export function ProductInput({
 }: ProductInputProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activeUrl = inputMode === 'product' ? productUrl : supplierUrl;
-  const isDemoMode = inputMode !== 'specs';
   const urlError = activeUrl.trim() && !isValidHttpUrl(activeUrl)
     ? 'Enter a valid URL beginning with http:// or https://.'
     : null;
@@ -96,9 +95,10 @@ export function ProductInput({
               key={mode.key}
               type="button"
               onClick={() => onModeChange(mode.key)}
+              disabled={isRunning}
               className={`rounded-full px-3 py-2 text-sm transition ${
                 inputMode === mode.key ? 'bg-amber-400/15 text-amber-200' : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-slate-200'
-              }`}
+              } disabled:cursor-not-allowed disabled:opacity-50`}
             >
               {mode.label}
             </button>
@@ -111,10 +111,15 @@ export function ProductInput({
         <p className="mt-3 max-w-2xl text-base leading-7 text-slate-300">
           Prepare. Verify. Optimize. Publish. The workspace creates verified Shopify product catalogs using AI-powered intelligence and truth verification.
         </p>
-        {isDemoMode ? (
+        {inputMode === 'pdf' ? (
           <div className="mt-4 inline-flex flex-wrap items-center gap-2 rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1.5 text-xs text-amber-100">
             <span className="font-semibold uppercase tracking-[0.14em] text-amber-300">Demo Mode</span>
-            <span className="text-slate-300">Live page extraction coming soon</span>
+            <span className="text-slate-300">Live PDF extraction coming soon</span>
+          </div>
+        ) : inputMode === 'url' || inputMode === 'product' ? (
+          <div className="mt-4 inline-flex flex-wrap items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-100">
+            <span className="font-semibold uppercase tracking-[0.14em] text-emerald-300">Live Analysis</span>
+            <span className="text-slate-300">Page content will be extracted and analyzed securely</span>
           </div>
         ) : null}
 
@@ -128,6 +133,7 @@ export function ProductInput({
               <textarea
                 value={specText}
                 onChange={(event) => onSpecTextChange(event.target.value)}
+                disabled={isRunning}
                 className="min-h-28 w-full resize-none rounded-lg border border-white/10 bg-[#07111f] px-3 py-3 text-sm outline-none focus:border-amber-400/50"
                 placeholder="Material, dimensions, care instructions, certifications, claims..."
               />
@@ -153,15 +159,15 @@ export function ProductInput({
                     <div className="truncate font-medium text-slate-100">{selectedPdf.name}</div>
                     <div className="mt-1 text-xs text-slate-500">PDF · {formatFileSize(selectedPdf.size)} · kept on this device</div>
                   </div>
-                  <button type="button" onClick={handlePdfClick} className="inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-2 text-xs text-slate-300 transition hover:bg-white/10">
+                  <button type="button" onClick={handlePdfClick} disabled={isRunning} className="inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-2 text-xs text-slate-300 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50">
                     <RefreshCw className="h-3.5 w-3.5" /> Change file
                   </button>
-                  <button type="button" onClick={handleRemovePdf} className="inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-2 text-xs text-slate-300 transition hover:bg-white/10 hover:text-rose-300">
+                  <button type="button" onClick={handleRemovePdf} disabled={isRunning} className="inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-2 text-xs text-slate-300 transition hover:bg-white/10 hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-50">
                     <Trash2 className="h-3.5 w-3.5" /> Remove
                   </button>
                 </div>
               ) : (
-                <button type="button" onClick={handlePdfClick} className="flex w-full items-center gap-2 text-left">
+                <button type="button" onClick={handlePdfClick} disabled={isRunning} className="flex w-full items-center gap-2 text-left disabled:cursor-not-allowed disabled:opacity-50">
                   <UploadCloud className="h-4 w-4 text-amber-300" />
                   <span className="flex-1">Choose a PDF file</span>
                   <span className="text-slate-500">Stored locally for this demo</span>
@@ -179,6 +185,7 @@ export function ProductInput({
                 inputMode="url"
                 value={activeUrl}
                 onChange={(event) => onUrlChange(inputMode, event.target.value)}
+                disabled={isRunning}
                 className="w-full rounded-lg border border-white/10 bg-[#07111f] px-3 py-3 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-amber-400/50"
                 placeholder={inputMode === 'product' ? 'https://store.example.com/products/...' : 'https://supplier.example.com/catalog/...'}
                 aria-invalid={Boolean(urlError || inputError)}
@@ -205,7 +212,8 @@ export function ProductInput({
           <button
             type="button"
             onClick={onLoadDemoProduct}
-            className="rounded-full border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-semibold text-slate-100 transition hover:bg-white/10"
+            disabled={isRunning}
+            className="rounded-full border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-semibold text-slate-100 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Load Demo Product
           </button>
