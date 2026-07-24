@@ -234,6 +234,12 @@ Raw Product Specifications
 
 ---
 
+# Local Development
+
+PostgreSQL, Prisma, and Auth.js setup instructions are documented in [docs/authentication-setup.md](docs/authentication-setup.md).
+
+---
+
 # 🧠 Why ListingPilot AI?
 
 Most AI listing tools focus on generating text.

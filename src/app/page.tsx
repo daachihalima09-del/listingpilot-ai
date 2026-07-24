@@ -13,6 +13,7 @@ import { ProductTruthTable } from '@/components/workspace/ProductTruthTable';
 import { RecentAnalyses } from '@/components/workspace/RecentAnalyses';
 import { Sidebar } from '@/components/workspace/Sidebar';
 import { SourceEvidence } from '@/components/workspace/SourceEvidence';
+import { SignOutButton } from '@/components/auth/SignOutButton';
 import { demoProduct } from '@/data/demo-product';
 import type { ProductAnalysis } from '@/lib/analysis-schema';
 import { isPdfFileName, isValidHttpUrl, normalizePastedHttpUrl, type DemoAnalysisContext, type DemoAnalysisInput } from '@/lib/demo-analysis-adapter';
@@ -504,6 +505,10 @@ export default function HomePage() {
               <Link href="/about" className="rounded-full px-3 py-2 transition hover:bg-white/10 hover:text-white">
                 About
               </Link>
+              <Link href="/settings/organization" className="rounded-full px-3 py-2 transition hover:bg-white/10 hover:text-white">
+                Settings
+              </Link>
+              <SignOutButton />
               <button className="rounded-full border border-white/10 bg-white/10 px-3 py-2 transition hover:bg-white/15">
                 New project
               </button>

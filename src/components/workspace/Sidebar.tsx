@@ -1,4 +1,5 @@
-import { Blocks, FileSpreadsheet, LayoutGrid, PanelLeft, Settings, Sparkles, SquareCheckBig } from 'lucide-react';
+import Link from 'next/link';
+import { Blocks, Boxes, Building2, FileSpreadsheet, LayoutGrid, PanelLeft, Settings, Sparkles, SquareCheckBig } from 'lucide-react';
 
 const navItems = [
   { label: 'Dashboard', icon: LayoutGrid, active: true },
@@ -6,7 +7,6 @@ const navItems = [
   { label: 'Truth Workspace', icon: Sparkles },
   { label: 'Review', icon: SquareCheckBig },
   { label: 'Export', icon: FileSpreadsheet },
-  { label: 'Settings', icon: Settings },
 ];
 
 export function Sidebar() {
@@ -36,6 +36,27 @@ export function Sidebar() {
             {label}
           </button>
         ))}
+
+        <div className="mt-5 border-t border-white/10 pt-5">
+          <div className="mb-2 flex items-center gap-2 px-4 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">
+            <Settings className="h-3.5 w-3.5" aria-hidden="true" />
+            Settings
+          </div>
+          <Link
+            href="/settings/organization"
+            className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-sm text-slate-400 transition hover:bg-white/5 hover:text-slate-100"
+          >
+            <Building2 className="h-4 w-4" aria-hidden="true" />
+            Organization
+          </Link>
+          <Link
+            href="/settings/workspace"
+            className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-sm text-slate-400 transition hover:bg-white/5 hover:text-slate-100"
+          >
+            <Boxes className="h-4 w-4" aria-hidden="true" />
+            Workspace
+          </Link>
+        </div>
       </nav>
 
       <div className="mt-auto rounded-[1.5rem] border border-white/10 bg-white/5 p-4">
