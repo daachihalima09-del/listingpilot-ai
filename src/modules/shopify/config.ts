@@ -113,3 +113,12 @@ export function parseShopifyConfig(
 export function getShopifyConfig(): ShopifyConfig {
   return parseShopifyConfig(process.env);
 }
+
+export function hasValidShopifyConfig(): boolean {
+  try {
+    getShopifyConfig();
+    return true;
+  } catch {
+    return false;
+  }
+}

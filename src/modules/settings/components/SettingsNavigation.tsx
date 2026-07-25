@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Boxes, Building2 } from 'lucide-react';
+import { Boxes, Building2, ShoppingBag } from 'lucide-react';
 
 const settingsLinks = [
   {
@@ -14,6 +14,11 @@ const settingsLinks = [
     href: '/settings/workspace',
     label: 'Workspace',
     icon: Boxes,
+  },
+  {
+    href: '/settings/shopify',
+    label: 'Shopify',
+    icon: ShoppingBag,
   },
 ] as const;
 

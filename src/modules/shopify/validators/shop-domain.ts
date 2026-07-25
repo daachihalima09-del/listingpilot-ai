@@ -73,7 +73,6 @@ export function normalizeShopDomain(value: string): string {
 
 export const shopifyConnectInputSchema = z.object({
   shop: shopDomainSchema,
-  workspaceId: z.string().uuid(),
 }).strict();
 
 export type ShopifyConnectInput = z.infer<typeof shopifyConnectInputSchema>;

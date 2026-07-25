@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { normalizeShopDomain, shopDomainSchema } from './shop-domain.ts';
+import {
+  normalizeShopDomain,
+  shopDomainSchema,
+  shopifyConnectInputSchema,
+} from './shop-domain.ts';
 
 test('normalizes Shopify store names and canonical HTTPS domains', () => {
   assert.equal(
@@ -35,4 +39,18 @@ test('rejects invalid, ambiguous, and non-Shopify domains', () => {
       `${domain || '<empty>'} should be rejected`,
     );
   }
+});
+
+test('connect input accepts only a shop domain resolved through existing normalization', () => {
+  assert.deepEqual(shopifyConnectInputSchema.parse({ shop: 'Sample-Store' }), {
+    shop: 'sample-store.myshopify.com',
+  });
+  assert.equal(shopifyConnectInputSchema.safeParse({
+    shop: 'sample-store',
+    workspaceId: '11111111-1111-4111-8111-111111111111',
+  }).success, false);
+  assert.equal(shopifyConnectInputSchema.safeParse({
+    shop: 'sample-store',
+    scopes: ['write_products'],
+  }).success, false);
 });

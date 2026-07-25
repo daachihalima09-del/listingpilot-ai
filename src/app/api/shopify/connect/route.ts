@@ -9,14 +9,16 @@ import {
   shopifyOAuthStateCookieOptions,
 } from '@/modules/shopify/oauth/state';
 import { createShopifyOAuthState } from '@/modules/shopify/repositories/oauth-state-repository';
-import { prismaShopifyOwnerAuthorizationStore } from '@/modules/shopify/repositories/prisma-owner-authorization-store';
 import {
   readShopifyConnectRequestBody,
   shopifyRouteErrorResponse,
 } from '@/modules/shopify/server/route-helpers';
-import { requireShopifyConnectionOwner } from '@/modules/shopify/services/connect-authorization';
-import { ShopifyUnauthenticatedError } from '@/modules/shopify/types/errors';
+import {
+  ShopifyForbiddenError,
+  ShopifyUnauthenticatedError,
+} from '@/modules/shopify/types/errors';
 import { shopifyConnectInputSchema } from '@/modules/shopify/validators/shop-domain';
+import { getTenantContextForUser } from '@/modules/tenancy/server/tenant-context';
 
 export async function POST(request: Request): Promise<NextResponse> {
   const user = await getCurrentUser();
@@ -27,11 +29,15 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     const body = await readShopifyConnectRequestBody(request);
     const input = shopifyConnectInputSchema.parse(body);
-    await requireShopifyConnectionOwner(
-      prismaShopifyOwnerAuthorizationStore,
-      user.id,
-      input.workspaceId,
-    );
+    let tenant;
+    try {
+      tenant = await getTenantContextForUser(user.id);
+    } catch {
+      throw new ShopifyForbiddenError();
+    }
+    if (tenant.role !== 'OWNER' || !tenant.workspace) {
+      throw new ShopifyForbiddenError();
+    }
 
     const state = generateShopifyOAuthState();
     const authorizationUrl = buildShopifyAuthorizationUrl(
@@ -44,7 +50,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     await createShopifyOAuthState({
       state,
       userId: user.id,
-      workspaceId: input.workspaceId,
+      workspaceId: tenant.workspace.id,
       shopDomain: input.shop,
       expiresAt: shopifyOAuthStateExpiresAt(),
     });
