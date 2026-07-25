@@ -22,8 +22,11 @@ test('merchant application and product-analysis routes are protected', () => {
     '/',
     '/catalog',
     '/workspace/example',
+    '/projects',
+    '/projects/example',
     '/dashboard',
     '/api/analyze',
+    '/api/projects',
   ]) {
     assert.deepEqual(
       getRouteAccessDecision(route, false),

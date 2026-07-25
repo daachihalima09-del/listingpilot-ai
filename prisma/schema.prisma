@@ -19,6 +19,26 @@ enum MembershipRole {
   VIEWER
 }
 
+enum ProjectStatus {
+  DRAFT
+  READY
+  ARCHIVED
+}
+
+enum ProjectSourceType {
+  RAW_SPECIFICATIONS
+  SUPPLIER_URL
+  PRODUCT_URL
+  UPLOADED_PDF
+}
+
+enum ShopifyStoreStatus {
+  PENDING
+  ACTIVE
+  DISCONNECTED
+  REVOKED
+}
+
 model User {
   id            String       @id @default(uuid()) @db.Uuid
   email         String       @unique @db.VarChar(320)
@@ -53,18 +73,65 @@ model Organization {
 }
 
 model Workspace {
-  id             String       @id @default(uuid()) @db.Uuid
-  organizationId String       @map("organization_id") @db.Uuid
-  name           String       @db.VarChar(200)
-  slug           String       @db.VarChar(100)
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  id             String         @id @default(uuid()) @db.Uuid
+  organizationId String         @map("organization_id") @db.Uuid
+  name           String         @db.VarChar(200)
+  slug           String         @db.VarChar(100)
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   auditLogs      AuditLog[]
+  projects       Project[]
+  shopifyStores  ShopifyStore[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
   @@map("workspaces")
+}
+
+model Project {
+  id                  String             @id @default(uuid()) @db.Uuid
+  workspaceId         String             @map("workspace_id") @db.Uuid
+  name                String             @db.VarChar(200)
+  status              ProjectStatus      @default(DRAFT)
+  statusBeforeArchive ProjectStatus?     @map("status_before_archive")
+  sourceType          ProjectSourceType? @map("source_type")
+  sourceUrl           String?            @map("source_url") @db.Text
+  rawInput            String?            @map("raw_input") @db.Text
+  analysisData        Json?              @map("analysis_data") @db.JsonB
+  generatedListing    Json?              @map("generated_listing") @db.JsonB
+  seoData             Json?              @map("seo_data") @db.JsonB
+  readinessData       Json?              @map("readiness_data") @db.JsonB
+  version             Int                @default(1)
+  archivedAt          DateTime?          @map("archived_at")
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+  workspace           Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([workspaceId, updatedAt])
+  @@index([workspaceId, status])
+  @@index([archivedAt])
+  @@map("projects")
+}
+
+model ShopifyStore {
+  id                   String             @id @default(uuid()) @db.Uuid
+  workspaceId          String             @map("workspace_id") @db.Uuid
+  shopDomain           String             @unique @map("shop_domain") @db.VarChar(255)
+  accessTokenEncrypted String?            @map("access_token_encrypted") @db.Text
+  scopes               String[]           @default([])
+  status               ShopifyStoreStatus @default(PENDING)
+  installedAt          DateTime?          @map("installed_at")
+  disconnectedAt       DateTime?          @map("disconnected_at")
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
+  workspace            Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([workspaceId, status])
+  @@index([status])
+  @@map("shopify_stores")
 }
 
 model Membership {

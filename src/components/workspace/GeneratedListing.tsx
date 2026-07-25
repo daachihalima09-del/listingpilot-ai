@@ -8,9 +8,14 @@ interface GeneratedListingProps {
     tags: string;
   };
   onChange: (field: keyof GeneratedListingProps['content'], value: string) => void;
+  readOnly?: boolean;
 }
 
-export function GeneratedListing({ content, onChange }: GeneratedListingProps) {
+export function GeneratedListing({
+  content,
+  onChange,
+  readOnly = false,
+}: GeneratedListingProps) {
   const fields: Array<{ key: keyof GeneratedListingProps['content']; label: string; multiline?: boolean }> = [
     { key: 'title', label: 'Product title' },
     { key: 'description', label: 'Description', multiline: true },
@@ -31,12 +36,14 @@ export function GeneratedListing({ content, onChange }: GeneratedListingProps) {
               <textarea
                 value={content[field.key]}
                 onChange={(event) => onChange(field.key, event.target.value)}
+                disabled={readOnly}
                 className="min-h-24 w-full rounded-xl border border-white/10 bg-[#07111f] px-3 py-3 text-sm text-slate-200 outline-none"
               />
             ) : (
               <input
                 value={content[field.key]}
                 onChange={(event) => onChange(field.key, event.target.value)}
+                disabled={readOnly}
                 className="w-full rounded-xl border border-white/10 bg-[#07111f] px-3 py-3 text-sm text-slate-200 outline-none"
               />
             )}

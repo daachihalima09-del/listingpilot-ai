@@ -5,6 +5,7 @@ import NextAuth, { type NextAuthConfig } from 'next-auth';
 import { env } from '@/lib/env';
 import { prisma } from '@/lib/prisma';
 import { getSafeCallbackPath } from '@/modules/auth/server/redirects';
+import { isProjectPageAvailableToUser } from '@/modules/projects/server/project-page-access';
 import {
   getRouteAccessDecision,
 } from '@/modules/auth/server/route-policy';
@@ -26,7 +27,7 @@ const authConfig = {
   },
   providers: [],
   callbacks: {
-    authorized({ auth, request }) {
+    async authorized({ auth, request }) {
       const isAuthenticated = auth?.user?.status === 'ACTIVE';
       const decision = getRouteAccessDecision(
         request.nextUrl.pathname,
@@ -34,6 +35,22 @@ const authConfig = {
       );
 
       if (decision.type === 'allow') {
+        const projectRoute = request.nextUrl.pathname.match(
+          /^\/workspace\/([^/]+)$/,
+        );
+        if (isAuthenticated && projectRoute) {
+          const isAvailable = await isProjectPageAvailableToUser(
+            auth.user.id,
+            {
+              projectId: projectRoute[1],
+              workspaceId: request.nextUrl.searchParams.get('workspaceId')
+                ?? undefined,
+            },
+          );
+          if (!isAvailable) {
+            return new Response(null, { status: 404 });
+          }
+        }
         return true;
       }
 

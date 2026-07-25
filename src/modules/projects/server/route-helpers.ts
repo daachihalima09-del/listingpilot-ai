@@ -6,15 +6,21 @@ import {
   JsonRequestBodyError,
   readBoundedJsonRequest,
 } from '@/lib/server/json-request';
-import { SettingsError } from '../types/errors';
+import { ProjectError } from '../types/errors';
 
-const MAX_SETTINGS_BODY_BYTES = 16 * 1024;
+const MAX_PROJECT_BODY_BYTES = 512 * 1024;
 
-export async function readSettingsRequestBody(request: Request): Promise<unknown> {
-  return readBoundedJsonRequest(request, MAX_SETTINGS_BODY_BYTES);
+export function readProjectRequestBody(request: Request): Promise<unknown> {
+  return readBoundedJsonRequest(request, MAX_PROJECT_BODY_BYTES);
 }
 
-export function unauthenticatedSettingsResponse(): NextResponse {
+export function bindProjectId(body: unknown, projectId: string): unknown {
+  return body && typeof body === 'object' && !Array.isArray(body)
+    ? { ...body, projectId }
+    : { projectId };
+}
+
+export function unauthenticatedProjectResponse(): NextResponse {
   return NextResponse.json(
     {
       error: {
@@ -26,12 +32,12 @@ export function unauthenticatedSettingsResponse(): NextResponse {
   );
 }
 
-export function settingsRouteErrorResponse(error: unknown): NextResponse {
+export function projectRouteErrorResponse(error: unknown): NextResponse {
   if (error instanceof ZodError) {
     return NextResponse.json(
       {
         error: {
-          code: 'SETTINGS_INVALID_INPUT',
+          code: 'PROJECT_INVALID_INPUT',
           message: 'Please correct the highlighted fields.',
           fieldErrors: error.flatten().fieldErrors,
         },
@@ -40,7 +46,7 @@ export function settingsRouteErrorResponse(error: unknown): NextResponse {
     );
   }
 
-  if (error instanceof SettingsError) {
+  if (error instanceof ProjectError) {
     return NextResponse.json(
       {
         error: {
@@ -57,8 +63,8 @@ export function settingsRouteErrorResponse(error: unknown): NextResponse {
       {
         error: {
           code: error.statusCode === 413
-            ? 'SETTINGS_PAYLOAD_TOO_LARGE'
-            : 'SETTINGS_INVALID_JSON',
+            ? 'PROJECT_PAYLOAD_TOO_LARGE'
+            : 'PROJECT_INVALID_JSON',
           message: error.message,
         },
       },
@@ -66,14 +72,14 @@ export function settingsRouteErrorResponse(error: unknown): NextResponse {
     );
   }
 
-  console.error('Unable to update tenant settings.', {
+  console.error('Unable to complete project operation.', {
     errorName: error instanceof Error ? error.name : 'UnknownError',
   });
   return NextResponse.json(
     {
       error: {
-        code: 'SETTINGS_UPDATE_FAILED',
-        message: 'Settings could not be updated. Please try again.',
+        code: 'PROJECT_OPERATION_FAILED',
+        message: 'The project operation could not be completed. Please try again.',
       },
     },
     { status: 500 },

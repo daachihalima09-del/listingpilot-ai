@@ -1,8 +1,12 @@
+'use client';
+
 import Link from 'next/link';
-import { Blocks, Boxes, Building2, FileSpreadsheet, LayoutGrid, PanelLeft, Settings, Sparkles, SquareCheckBig } from 'lucide-react';
+import { Blocks, Boxes, Building2, FileSpreadsheet, FolderKanban, LayoutGrid, PanelLeft, Settings, Sparkles, SquareCheckBig } from 'lucide-react';
+import { usePathname } from 'next/navigation';
 
 const navItems = [
-  { label: 'Dashboard', icon: LayoutGrid, active: true },
+  { label: 'Dashboard', icon: LayoutGrid, href: '/' },
+  { label: 'Saved Projects', icon: FolderKanban, href: '/projects' },
   { label: 'Catalog', icon: Blocks },
   { label: 'Truth Workspace', icon: Sparkles },
   { label: 'Review', icon: SquareCheckBig },
@@ -10,6 +14,8 @@ const navItems = [
 ];
 
 export function Sidebar() {
+  const pathname = usePathname();
+
   return (
     <aside className="hidden w-64 shrink-0 border-r border-white/10 bg-[#060b14] p-6 min-[1700px]:flex min-[1700px]:flex-col">
       <div className="space-y-2">
@@ -25,17 +31,26 @@ export function Sidebar() {
       </div>
 
       <nav className="mt-10 space-y-2">
-        {navItems.map(({ label, icon: Icon, active }) => (
-          <button
-            key={label}
-            className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm transition ${
-              active ? 'bg-amber-400/15 text-amber-200 shadow-[0_0_0_1px_rgba(255,199,76,0.2)]' : 'text-slate-400 hover:bg-white/5 hover:text-slate-100'
-            }`}
-          >
-            <Icon className="h-4 w-4" />
-            {label}
-          </button>
-        ))}
+        {navItems.map(({ label, icon: Icon, href }) => {
+          const active = href === '/'
+            ? pathname === '/'
+            : Boolean(href && pathname.startsWith(href));
+          const className = `flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm transition ${
+            active ? 'bg-amber-400/15 text-amber-200 shadow-[0_0_0_1px_rgba(255,199,76,0.2)]' : 'text-slate-400 hover:bg-white/5 hover:text-slate-100'
+          }`;
+
+          return href ? (
+            <Link key={label} href={href} className={className}>
+              <Icon className="h-4 w-4" aria-hidden="true" />
+              {label}
+            </Link>
+          ) : (
+            <button key={label} type="button" className={className}>
+              <Icon className="h-4 w-4" aria-hidden="true" />
+              {label}
+            </button>
+          );
+        })}
 
         <div className="mt-5 border-t border-white/10 pt-5">
           <div className="mb-2 flex items-center gap-2 px-4 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">

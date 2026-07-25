@@ -30,11 +30,5 @@ export const workspaceUpdateSchema = z.object({
   name: tenantNameSchema,
 }).strict();
 
-export const tenantSelectionSchema = z.object({
-  organizationId: z.string().uuid().optional(),
-  workspaceId: z.string().uuid().optional(),
-}).strict();
-
 export type OrganizationUpdateInput = z.infer<typeof organizationUpdateSchema>;
 export type WorkspaceUpdateInput = z.infer<typeof workspaceUpdateSchema>;
-export type TenantSelection = z.infer<typeof tenantSelectionSchema>;

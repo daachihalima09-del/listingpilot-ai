@@ -9,6 +9,7 @@ interface AIDetectiveProps {
   visibleSourcesCount: number;
   recommendationConfidence: number;
   showRecommendation: boolean;
+  readOnly?: boolean;
 }
 
 export function AIDetective({
@@ -19,6 +20,7 @@ export function AIDetective({
   visibleSourcesCount,
   recommendationConfidence,
   showRecommendation,
+  readOnly = false,
 }: AIDetectiveProps) {
   const conflictConfidence = product.truthRows.find((row) => row.field === product.conflict.label)?.confidence ?? recommendationConfidence;
   const isSamsungDemo = product.brand === 'Samsung' && product.model === 'Q80D';
@@ -87,6 +89,7 @@ export function AIDetective({
             </div>
             <button
               onClick={onResolve}
+              disabled={readOnly}
               className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${conflictResolved ? 'bg-emerald-400 text-slate-950 hover:bg-emerald-300' : 'bg-amber-400 text-slate-950 hover:bg-amber-300'}`}
             >
               {conflictResolved ? <CheckCircle2 className="h-4 w-4" /> : null}
