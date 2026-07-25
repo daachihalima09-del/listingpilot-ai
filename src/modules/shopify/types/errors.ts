@@ -3,6 +3,10 @@ export const shopifyErrorCodes = {
   forbidden: 'SHOPIFY_FORBIDDEN',
   invalidInput: 'SHOPIFY_INVALID_INPUT',
   configuration: 'SHOPIFY_CONFIGURATION_ERROR',
+  invalidCallback: 'SHOPIFY_INVALID_CALLBACK',
+  invalidState: 'SHOPIFY_INVALID_STATE',
+  unavailable: 'SHOPIFY_UNAVAILABLE',
+  connectionFailed: 'SHOPIFY_CONNECTION_FAILED',
 } as const;
 
 export type ShopifyErrorCode =
@@ -43,5 +47,34 @@ export class ShopifyForbiddenError extends ShopifyError {
       403,
     );
     this.name = 'ShopifyForbiddenError';
+  }
+}
+
+export type ShopifyCallbackErrorReason =
+  | 'invalid_callback'
+  | 'invalid_state'
+  | 'shopify_unavailable'
+  | 'connection_failed';
+
+export class ShopifyCallbackError extends Error {
+  readonly reason: ShopifyCallbackErrorReason;
+  readonly safeCategory: string;
+
+  constructor(
+    reason: ShopifyCallbackErrorReason,
+    safeCategory: string,
+    options?: ErrorOptions,
+  ) {
+    super('The Shopify callback could not be completed.', options);
+    this.name = 'ShopifyCallbackError';
+    this.reason = reason;
+    this.safeCategory = safeCategory;
+  }
+}
+
+export class ShopifyDuplicateShopError extends ShopifyCallbackError {
+  constructor() {
+    super('connection_failed', 'duplicate_shop');
+    this.name = 'ShopifyDuplicateShopError';
   }
 }

@@ -34,26 +34,28 @@ enum ProjectSourceType {
 
 enum ShopifyStoreStatus {
   PENDING
+  CONNECTED
   ACTIVE
   DISCONNECTED
   REVOKED
 }
 
 model User {
-  id            String       @id @default(uuid()) @db.Uuid
-  email         String       @unique @db.VarChar(320)
-  emailVerified DateTime?    @map("email_verified")
-  passwordHash  String?      @map("password_hash") @db.Text
-  name          String?      @db.VarChar(200)
-  image         String?      @db.Text
-  status        UserStatus   @default(ACTIVE)
-  lastLoginAt   DateTime?    @map("last_login_at")
-  createdAt     DateTime     @default(now()) @map("created_at")
-  updatedAt     DateTime     @updatedAt @map("updated_at")
-  accounts      Account[]
-  sessions      Session[]
-  memberships   Membership[]
-  auditLogs     AuditLog[]
+  id                 String              @id @default(uuid()) @db.Uuid
+  email              String              @unique @db.VarChar(320)
+  emailVerified      DateTime?           @map("email_verified")
+  passwordHash       String?             @map("password_hash") @db.Text
+  name               String?             @db.VarChar(200)
+  image              String?             @db.Text
+  status             UserStatus          @default(ACTIVE)
+  lastLoginAt        DateTime?           @map("last_login_at")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  accounts           Account[]
+  sessions           Session[]
+  memberships        Membership[]
+  auditLogs          AuditLog[]
+  shopifyOAuthStates ShopifyOAuthState[]
 
   @@index([status])
   @@map("users")
@@ -73,16 +75,17 @@ model Organization {
 }
 
 model Workspace {
-  id             String         @id @default(uuid()) @db.Uuid
-  organizationId String         @map("organization_id") @db.Uuid
-  name           String         @db.VarChar(200)
-  slug           String         @db.VarChar(100)
-  createdAt      DateTime       @default(now()) @map("created_at")
-  updatedAt      DateTime       @updatedAt @map("updated_at")
-  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  auditLogs      AuditLog[]
-  projects       Project[]
-  shopifyStores  ShopifyStore[]
+  id                 String              @id @default(uuid()) @db.Uuid
+  organizationId     String              @map("organization_id") @db.Uuid
+  name               String              @db.VarChar(200)
+  slug               String              @db.VarChar(100)
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  auditLogs          AuditLog[]
+  projects           Project[]
+  shopifyStores      ShopifyStore[]
+  shopifyOAuthStates ShopifyOAuthState[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -117,12 +120,15 @@ model Project {
 
 model ShopifyStore {
   id                   String             @id @default(uuid()) @db.Uuid
-  workspaceId          String             @map("workspace_id") @db.Uuid
+  workspaceId          String             @unique @map("workspace_id") @db.Uuid
   shopDomain           String             @unique @map("shop_domain") @db.VarChar(255)
+  shopName             String?            @map("shop_name") @db.VarChar(255)
   accessTokenEncrypted String?            @map("access_token_encrypted") @db.Text
-  scopes               String[]           @default([])
+  requestedScopes      String[]           @default([]) @map("requested_scopes")
+  grantedScopes        String[]           @default([]) @map("scopes")
   status               ShopifyStoreStatus @default(PENDING)
   installedAt          DateTime?          @map("installed_at")
+  lastVerifiedAt       DateTime?          @map("last_verified_at")
   disconnectedAt       DateTime?          @map("disconnected_at")
   createdAt            DateTime           @default(now()) @map("created_at")
   updatedAt            DateTime           @updatedAt @map("updated_at")
@@ -132,6 +138,23 @@ model ShopifyStore {
   @@index([workspaceId, status])
   @@index([status])
   @@map("shopify_stores")
+}
+
+model ShopifyOAuthState {
+  id          String    @id @default(uuid()) @db.Uuid
+  stateHash   String    @unique @map("state_hash") @db.Char(64)
+  userId      String    @map("user_id") @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  shopDomain  String    @map("shop_domain") @db.VarChar(255)
+  expiresAt   DateTime  @map("expires_at")
+  consumedAt  DateTime? @map("consumed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([userId, workspaceId])
+  @@index([expiresAt])
+  @@map("shopify_oauth_states")
 }
 
 model Membership {

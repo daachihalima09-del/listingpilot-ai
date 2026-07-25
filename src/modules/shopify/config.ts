@@ -24,6 +24,26 @@ const shopifyScopesSchema = z.string().transform((value, context) => {
   return scopes;
 });
 
+const encryptionKeySchema = z.string().transform((value, context) => {
+  if (!/^[A-Za-z0-9+/]{43}=$/.test(value)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'SHOPIFY_TOKEN_ENCRYPTION_KEY must be a base64-encoded 32-byte key.',
+    });
+    return z.NEVER;
+  }
+
+  const key = Buffer.from(value, 'base64');
+  if (key.length !== 32 || key.toString('base64') !== value) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'SHOPIFY_TOKEN_ENCRYPTION_KEY must be a base64-encoded 32-byte key.',
+    });
+    return z.NEVER;
+  }
+  return value;
+});
+
 const shopifyConfigSchema = z.object({
   SHOPIFY_API_KEY: z.string().trim().min(1),
   SHOPIFY_API_SECRET: z.string().min(1),
@@ -47,7 +67,7 @@ const shopifyConfigSchema = z.object({
   }),
   SHOPIFY_API_VERSION: shopifyApiVersionSchema,
   SHOPIFY_SCOPES: shopifyScopesSchema,
-  SHOPIFY_TOKEN_ENCRYPTION_KEY: z.string().min(32),
+  SHOPIFY_TOKEN_ENCRYPTION_KEY: encryptionKeySchema,
 }).strict();
 
 export interface ShopifyConfig {

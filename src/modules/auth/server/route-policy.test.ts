@@ -28,6 +28,7 @@ test('merchant application and product-analysis routes are protected', () => {
     '/api/analyze',
     '/api/projects',
     '/api/shopify/connect',
+    '/api/shopify/callback',
   ]) {
     assert.deepEqual(
       getRouteAccessDecision(route, false),

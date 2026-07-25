@@ -4,9 +4,11 @@ import { getShopifyConfig } from '@/modules/shopify/config';
 import { buildShopifyAuthorizationUrl } from '@/modules/shopify/oauth/authorization-url';
 import {
   generateShopifyOAuthState,
+  shopifyOAuthStateExpiresAt,
   shopifyOAuthStateCookieName,
   shopifyOAuthStateCookieOptions,
 } from '@/modules/shopify/oauth/state';
+import { createShopifyOAuthState } from '@/modules/shopify/repositories/oauth-state-repository';
 import { prismaShopifyOwnerAuthorizationStore } from '@/modules/shopify/repositories/prisma-owner-authorization-store';
 import {
   readShopifyConnectRequestBody,
@@ -39,6 +41,13 @@ export async function POST(request: Request): Promise<NextResponse> {
         state,
       },
     );
+    await createShopifyOAuthState({
+      state,
+      userId: user.id,
+      workspaceId: input.workspaceId,
+      shopDomain: input.shop,
+      expiresAt: shopifyOAuthStateExpiresAt(),
+    });
     const response = NextResponse.json({ authorizationUrl });
     response.cookies.set(
       shopifyOAuthStateCookieName(),
