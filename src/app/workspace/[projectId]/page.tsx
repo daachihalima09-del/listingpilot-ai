@@ -22,6 +22,9 @@ import {
   getUserShopifyMetafields,
 } from '@/modules/shopify/metafields/metafield-operations.server';
 import {
+  getUserShopifyImages,
+} from '@/modules/shopify/images/image-operations.server';
+import {
   getShopifyConnectionStatus,
 } from '@/modules/shopify/services/connection-status';
 import { TenantAccessError } from '@/modules/tenancy/server/tenant-context';
@@ -55,6 +58,7 @@ export default async function ProjectWorkspacePage({
       publication,
       variantConfiguration,
       metafieldConfiguration,
+      imageConfiguration,
     ] = await Promise.all([
       getShopifyConnectionStatus(
         configured
@@ -74,6 +78,7 @@ export default async function ProjectWorkspacePage({
         project.id,
       ),
       getUserShopifyMetafields(user.id, project.id),
+      getUserShopifyImages(user.id, project.id),
     ]);
     const connected = (
       connection.status === 'CONNECTED'
@@ -124,6 +129,13 @@ export default async function ProjectWorkspacePage({
           canManage: tenant.role === 'OWNER' && project.status !== 'ARCHIVED',
           hasPublishedProduct: Boolean(publication),
           configuration: metafieldConfiguration,
+        }}
+        shopifyImages={{
+          configured,
+          connected,
+          canManage: tenant.role === 'OWNER' && project.status !== 'ARCHIVED',
+          hasPublishedProduct: Boolean(publication),
+          configuration: imageConfiguration,
         }}
       />
     );

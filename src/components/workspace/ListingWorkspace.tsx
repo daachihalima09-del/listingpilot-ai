@@ -26,9 +26,13 @@ import {
 import { ShopifyPublishingPanel } from '@/modules/shopify/components/ShopifyPublishingPanel';
 import { ShopifyVariantsPanel } from '@/modules/shopify/components/ShopifyVariantsPanel';
 import { ShopifyMetafieldsPanel } from '@/modules/shopify/components/ShopifyMetafieldsPanel';
+import { ShopifyImagesPanel } from '@/modules/shopify/components/ShopifyImagesPanel';
 import type {
   ShopifyMetafieldConfigurationDto,
 } from '@/modules/shopify/metafields/metafield-repository';
+import type {
+  ShopifyImageConfigurationDto,
+} from '@/modules/shopify/images/image-repository';
 import type {
   ShopifyPublishingContext,
 } from '@/modules/shopify/publishing/publication-types';
@@ -159,6 +163,13 @@ interface ListingWorkspaceProps {
     hasPublishedProduct: boolean;
     configuration: ShopifyMetafieldConfigurationDto;
   };
+  shopifyImages?: {
+    configured: boolean;
+    connected: boolean;
+    canManage: boolean;
+    hasPublishedProduct: boolean;
+    configuration: ShopifyImageConfigurationDto;
+  };
 }
 
 function projectSourceToInputMode(
@@ -182,6 +193,7 @@ export function ListingWorkspace({
   shopifyPublishing,
   shopifyVariants,
   shopifyMetafields,
+  shopifyImages,
 }: ListingWorkspaceProps) {
   const analysisRequestRef = useRef<AbortController | null>(null);
   const restoredAnalysis = initialProject?.analysisData;
@@ -922,6 +934,16 @@ export function ListingWorkspace({
                   canManage={shopifyMetafields.canManage}
                   hasPublishedProduct={hasPublishedShopifyProduct}
                   initialConfiguration={shopifyMetafields.configuration}
+                />
+              ) : null}
+              {initialProject && shopifyImages ? (
+                <ShopifyImagesPanel
+                  projectId={initialProject.id}
+                  configured={shopifyImages.configured}
+                  connected={shopifyImages.connected}
+                  canManage={shopifyImages.canManage}
+                  hasPublishedProduct={hasPublishedShopifyProduct}
+                  initialConfiguration={shopifyImages.configuration}
                 />
               ) : null}
               <ProductTruthTable rows={truthRows} visibleCount={visibleRows} />

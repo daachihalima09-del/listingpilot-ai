@@ -45,22 +45,44 @@ enum ShopifyProductPublicationStatus {
   DRAFT
 }
 
+enum ShopifyImageSourceType {
+  REMOTE_URL
+  LOCAL_UPLOAD
+}
+
+enum ShopifyImageStatus {
+  CONFIGURED
+  UPLOADING
+  PROCESSING
+  READY
+  FAILED
+  MISSING_REMOTE
+  INACTIVE
+}
+
+enum ShopifyImageUploadSessionStatus {
+  PENDING
+  PROCESSING
+  CONSUMED
+}
+
 model User {
-  id                 String              @id @default(uuid()) @db.Uuid
-  email              String              @unique @db.VarChar(320)
-  emailVerified      DateTime?           @map("email_verified")
-  passwordHash       String?             @map("password_hash") @db.Text
-  name               String?             @db.VarChar(200)
-  image              String?             @db.Text
-  status             UserStatus          @default(ACTIVE)
-  lastLoginAt        DateTime?           @map("last_login_at")
-  createdAt          DateTime            @default(now()) @map("created_at")
-  updatedAt          DateTime            @updatedAt @map("updated_at")
-  accounts           Account[]
-  sessions           Session[]
-  memberships        Membership[]
-  auditLogs          AuditLog[]
-  shopifyOAuthStates ShopifyOAuthState[]
+  id                         String                      @id @default(uuid()) @db.Uuid
+  email                      String                      @unique @db.VarChar(320)
+  emailVerified              DateTime?                   @map("email_verified")
+  passwordHash               String?                     @map("password_hash") @db.Text
+  name                       String?                     @db.VarChar(200)
+  image                      String?                     @db.Text
+  status                     UserStatus                  @default(ACTIVE)
+  lastLoginAt                DateTime?                   @map("last_login_at")
+  createdAt                  DateTime                    @default(now()) @map("created_at")
+  updatedAt                  DateTime                    @updatedAt @map("updated_at")
+  accounts                   Account[]
+  sessions                   Session[]
+  memberships                Membership[]
+  auditLogs                  AuditLog[]
+  shopifyOAuthStates         ShopifyOAuthState[]
+  shopifyImageUploadSessions ShopifyImageUploadSession[]
 
   @@index([status])
   @@map("users")
@@ -118,6 +140,8 @@ model Project {
   shopifyProductPublication     ShopifyProductPublication?
   shopifyVariantConfiguration   ShopifyVariantConfiguration?
   shopifyMetafieldConfiguration ShopifyMetafieldConfiguration?
+  shopifyImageConfiguration     ShopifyImageConfiguration?
+  shopifyImageUploadSessions    ShopifyImageUploadSession[]
 
   @@unique([id, workspaceId])
   @@index([workspaceId])
@@ -294,6 +318,73 @@ model ShopifyMetafieldDefinitionLink {
   @@unique([shopifyStoreId, namespace, key])
   @@index([shopifyStoreId])
   @@map("shopify_metafield_definition_links")
+}
+
+model ShopifyImageConfiguration {
+  id          String                @id @default(uuid()) @db.Uuid
+  projectId   String                @map("project_id") @db.Uuid
+  workspaceId String                @map("workspace_id") @db.Uuid
+  version     Int                   @default(1)
+  createdAt   DateTime              @default(now()) @map("created_at")
+  updatedAt   DateTime              @updatedAt @map("updated_at")
+  project     Project               @relation(fields: [projectId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  images      ShopifyProjectImage[]
+
+  @@unique([projectId, workspaceId])
+  @@index([workspaceId])
+  @@map("shopify_image_configurations")
+}
+
+model ShopifyProjectImage {
+  id                String                    @id @default(uuid()) @db.Uuid
+  configurationId   String                    @map("configuration_id") @db.Uuid
+  sourceType        ShopifyImageSourceType    @map("source_type")
+  sourceUrl         String?                   @map("source_url") @db.Text
+  originalFilename  String?                   @map("original_filename") @db.VarChar(255)
+  mimeType          String                    @map("mime_type") @db.VarChar(50)
+  byteSize          Int                       @map("byte_size")
+  contentHash       String                    @map("content_hash") @db.Char(64)
+  altText           String?                   @map("alt_text") @db.VarChar(512)
+  position          Int
+  isPrimary         Boolean                   @default(false) @map("is_primary")
+  active            Boolean                   @default(true)
+  status            ShopifyImageStatus        @default(CONFIGURED)
+  shopifyMediaId    String?                   @map("shopify_media_id") @db.VarChar(20)
+  shopifyFileId     String?                   @unique @map("shopify_file_id") @db.VarChar(20)
+  shopifyImageUrl   String?                   @map("shopify_image_url") @db.Text
+  firstPublishedAt  DateTime?                 @map("first_published_at")
+  lastPublishedAt   DateTime?                 @map("last_published_at")
+  lastErrorCategory String?                   @map("last_error_category") @db.VarChar(100)
+  createdAt         DateTime                  @default(now()) @map("created_at")
+  updatedAt         DateTime                  @updatedAt @map("updated_at")
+  configuration     ShopifyImageConfiguration @relation(fields: [configurationId], references: [id], onDelete: Cascade)
+
+  @@unique([configurationId, position])
+  @@unique([configurationId, contentHash])
+  @@index([configurationId, active, position])
+  @@index([configurationId, status])
+  @@map("shopify_project_images")
+}
+
+model ShopifyImageUploadSession {
+  id               String                          @id @default(uuid()) @db.Uuid
+  projectId        String                          @map("project_id") @db.Uuid
+  workspaceId      String                          @map("workspace_id") @db.Uuid
+  userId           String                          @map("user_id") @db.Uuid
+  originalFilename String                          @map("original_filename") @db.VarChar(255)
+  mimeType         String                          @map("mime_type") @db.VarChar(50)
+  byteSize         Int                             @map("byte_size")
+  altText          String?                         @map("alt_text") @db.VarChar(512)
+  status           ShopifyImageUploadSessionStatus @default(PENDING)
+  expiresAt        DateTime                        @map("expires_at")
+  consumedAt       DateTime?                       @map("consumed_at")
+  createdAt        DateTime                        @default(now()) @map("created_at")
+  project          Project                         @relation(fields: [projectId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  user             User                            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, workspaceId, userId])
+  @@index([expiresAt, status])
+  @@map("shopify_image_upload_sessions")
 }
 
 model ShopifyOAuthState {
