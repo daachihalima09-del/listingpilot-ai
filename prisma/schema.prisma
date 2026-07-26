@@ -98,25 +98,26 @@ model Workspace {
 }
 
 model Project {
-  id                          String                       @id @default(uuid()) @db.Uuid
-  workspaceId                 String                       @map("workspace_id") @db.Uuid
-  name                        String                       @db.VarChar(200)
-  status                      ProjectStatus                @default(DRAFT)
-  statusBeforeArchive         ProjectStatus?               @map("status_before_archive")
-  sourceType                  ProjectSourceType?           @map("source_type")
-  sourceUrl                   String?                      @map("source_url") @db.Text
-  rawInput                    String?                      @map("raw_input") @db.Text
-  analysisData                Json?                        @map("analysis_data") @db.JsonB
-  generatedListing            Json?                        @map("generated_listing") @db.JsonB
-  seoData                     Json?                        @map("seo_data") @db.JsonB
-  readinessData               Json?                        @map("readiness_data") @db.JsonB
-  version                     Int                          @default(1)
-  archivedAt                  DateTime?                    @map("archived_at")
-  createdAt                   DateTime                     @default(now()) @map("created_at")
-  updatedAt                   DateTime                     @updatedAt @map("updated_at")
-  workspace                   Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  shopifyProductPublication   ShopifyProductPublication?
-  shopifyVariantConfiguration ShopifyVariantConfiguration?
+  id                            String                         @id @default(uuid()) @db.Uuid
+  workspaceId                   String                         @map("workspace_id") @db.Uuid
+  name                          String                         @db.VarChar(200)
+  status                        ProjectStatus                  @default(DRAFT)
+  statusBeforeArchive           ProjectStatus?                 @map("status_before_archive")
+  sourceType                    ProjectSourceType?             @map("source_type")
+  sourceUrl                     String?                        @map("source_url") @db.Text
+  rawInput                      String?                        @map("raw_input") @db.Text
+  analysisData                  Json?                          @map("analysis_data") @db.JsonB
+  generatedListing              Json?                          @map("generated_listing") @db.JsonB
+  seoData                       Json?                          @map("seo_data") @db.JsonB
+  readinessData                 Json?                          @map("readiness_data") @db.JsonB
+  version                       Int                            @default(1)
+  archivedAt                    DateTime?                      @map("archived_at")
+  createdAt                     DateTime                       @default(now()) @map("created_at")
+  updatedAt                     DateTime                       @updatedAt @map("updated_at")
+  workspace                     Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  shopifyProductPublication     ShopifyProductPublication?
+  shopifyVariantConfiguration   ShopifyVariantConfiguration?
+  shopifyMetafieldConfiguration ShopifyMetafieldConfiguration?
 
   @@unique([id, workspaceId])
   @@index([workspaceId])
@@ -214,26 +215,85 @@ model ShopifyProductPublication {
   @@map("shopify_product_publications")
 }
 
+model ShopifyMetafieldConfiguration {
+  id            String                    @id @default(uuid()) @db.Uuid
+  projectId     String                    @map("project_id") @db.Uuid
+  workspaceId   String                    @map("workspace_id") @db.Uuid
+  schemaVersion String                    @map("schema_version") @db.VarChar(20)
+  version       Int                       @default(1)
+  createdAt     DateTime                  @default(now()) @map("created_at")
+  updatedAt     DateTime                  @updatedAt @map("updated_at")
+  project       Project                   @relation(fields: [projectId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  metafields    ShopifyProjectMetafield[]
+
+  @@unique([projectId, workspaceId])
+  @@index([workspaceId])
+  @@map("shopify_metafield_configurations")
+}
+
+model ShopifyProjectMetafield {
+  id                 String                        @id @default(uuid()) @db.Uuid
+  configurationId    String                        @map("configuration_id") @db.Uuid
+  catalogKey         String                        @map("catalog_key") @db.VarChar(100)
+  namespace          String                        @db.VarChar(255)
+  key                String                        @db.VarChar(64)
+  type               String                        @db.VarChar(100)
+  serializedValue    String?                       @map("serialized_value") @db.Text
+  valueHash          String?                       @map("value_hash") @db.Char(64)
+  enabled            Boolean                       @default(true)
+  shopifyMetafieldId String?                       @map("shopify_metafield_id") @db.VarChar(20)
+  firstPublishedAt   DateTime?                     @map("first_published_at")
+  lastPublishedAt    DateTime?                     @map("last_published_at")
+  lastPublishedHash  String?                       @map("last_published_hash") @db.Char(64)
+  createdAt          DateTime                      @default(now()) @map("created_at")
+  updatedAt          DateTime                      @updatedAt @map("updated_at")
+  configuration      ShopifyMetafieldConfiguration @relation(fields: [configurationId], references: [id], onDelete: Cascade)
+
+  @@unique([configurationId, catalogKey])
+  @@unique([configurationId, namespace, key])
+  @@index([configurationId, enabled])
+  @@map("shopify_project_metafields")
+}
+
 model ShopifyStore {
-  id                   String             @id @default(uuid()) @db.Uuid
-  workspaceId          String             @unique @map("workspace_id") @db.Uuid
-  shopDomain           String             @unique @map("shop_domain") @db.VarChar(255)
-  shopName             String?            @map("shop_name") @db.VarChar(255)
-  accessTokenEncrypted String?            @map("access_token_encrypted") @db.Text
-  requestedScopes      String[]           @default([]) @map("requested_scopes")
-  grantedScopes        String[]           @default([]) @map("scopes")
-  status               ShopifyStoreStatus @default(PENDING)
-  installedAt          DateTime?          @map("installed_at")
-  lastVerifiedAt       DateTime?          @map("last_verified_at")
-  disconnectedAt       DateTime?          @map("disconnected_at")
-  createdAt            DateTime           @default(now()) @map("created_at")
-  updatedAt            DateTime           @updatedAt @map("updated_at")
-  workspace            Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  id                       String                           @id @default(uuid()) @db.Uuid
+  workspaceId              String                           @unique @map("workspace_id") @db.Uuid
+  shopDomain               String                           @unique @map("shop_domain") @db.VarChar(255)
+  shopName                 String?                          @map("shop_name") @db.VarChar(255)
+  accessTokenEncrypted     String?                          @map("access_token_encrypted") @db.Text
+  requestedScopes          String[]                         @default([]) @map("requested_scopes")
+  grantedScopes            String[]                         @default([]) @map("scopes")
+  status                   ShopifyStoreStatus               @default(PENDING)
+  installedAt              DateTime?                        @map("installed_at")
+  lastVerifiedAt           DateTime?                        @map("last_verified_at")
+  disconnectedAt           DateTime?                        @map("disconnected_at")
+  createdAt                DateTime                         @default(now()) @map("created_at")
+  updatedAt                DateTime                         @updatedAt @map("updated_at")
+  workspace                Workspace                        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  metafieldDefinitionLinks ShopifyMetafieldDefinitionLink[]
 
   @@index([workspaceId])
   @@index([workspaceId, status])
   @@index([status])
   @@map("shopify_stores")
+}
+
+model ShopifyMetafieldDefinitionLink {
+  id                  String       @id @default(uuid()) @db.Uuid
+  shopifyStoreId      String       @map("shopify_store_id") @db.Uuid
+  catalogKey          String       @map("catalog_key") @db.VarChar(100)
+  namespace           String       @db.VarChar(255)
+  key                 String       @db.VarChar(64)
+  type                String       @db.VarChar(100)
+  shopifyDefinitionId String       @map("shopify_definition_id") @db.VarChar(20)
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
+  shopifyStore        ShopifyStore @relation(fields: [shopifyStoreId], references: [id], onDelete: Cascade)
+
+  @@unique([shopifyStoreId, catalogKey])
+  @@unique([shopifyStoreId, namespace, key])
+  @@index([shopifyStoreId])
+  @@map("shopify_metafield_definition_links")
 }
 
 model ShopifyOAuthState {

@@ -25,6 +25,10 @@ import {
 } from '@/modules/projects/client/use-project-autosave';
 import { ShopifyPublishingPanel } from '@/modules/shopify/components/ShopifyPublishingPanel';
 import { ShopifyVariantsPanel } from '@/modules/shopify/components/ShopifyVariantsPanel';
+import { ShopifyMetafieldsPanel } from '@/modules/shopify/components/ShopifyMetafieldsPanel';
+import type {
+  ShopifyMetafieldConfigurationDto,
+} from '@/modules/shopify/metafields/metafield-repository';
 import type {
   ShopifyPublishingContext,
 } from '@/modules/shopify/publishing/publication-types';
@@ -148,6 +152,13 @@ interface ListingWorkspaceProps {
     hasPublishedProduct: boolean;
     configuration: ShopifyVariantConfigurationDto;
   };
+  shopifyMetafields?: {
+    configured: boolean;
+    connected: boolean;
+    canManage: boolean;
+    hasPublishedProduct: boolean;
+    configuration: ShopifyMetafieldConfigurationDto;
+  };
 }
 
 function projectSourceToInputMode(
@@ -170,6 +181,7 @@ export function ListingWorkspace({
   canManage = true,
   shopifyPublishing,
   shopifyVariants,
+  shopifyMetafields,
 }: ListingWorkspaceProps) {
   const analysisRequestRef = useRef<AbortController | null>(null);
   const restoredAnalysis = initialProject?.analysisData;
@@ -900,6 +912,16 @@ export function ListingWorkspace({
                   canManage={shopifyVariants.canManage}
                   hasPublishedProduct={hasPublishedShopifyProduct}
                   initialConfiguration={shopifyVariants.configuration}
+                />
+              ) : null}
+              {initialProject && shopifyMetafields ? (
+                <ShopifyMetafieldsPanel
+                  projectId={initialProject.id}
+                  configured={shopifyMetafields.configured}
+                  connected={shopifyMetafields.connected}
+                  canManage={shopifyMetafields.canManage}
+                  hasPublishedProduct={hasPublishedShopifyProduct}
+                  initialConfiguration={shopifyMetafields.configuration}
                 />
               ) : null}
               <ProductTruthTable rows={truthRows} visibleCount={visibleRows} />

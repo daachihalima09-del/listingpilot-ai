@@ -19,6 +19,9 @@ import {
   buildTrustedShopifyAdminProductUrl,
 } from '@/modules/shopify/publishing/publishing-view';
 import {
+  getUserShopifyMetafields,
+} from '@/modules/shopify/metafields/metafield-operations.server';
+import {
   getShopifyConnectionStatus,
 } from '@/modules/shopify/services/connection-status';
 import { TenantAccessError } from '@/modules/tenancy/server/tenant-context';
@@ -47,7 +50,12 @@ export default async function ProjectWorkspacePage({
       projectId,
     });
     const configured = hasValidShopifyConfig();
-    const [connection, publication, variantConfiguration] = await Promise.all([
+    const [
+      connection,
+      publication,
+      variantConfiguration,
+      metafieldConfiguration,
+    ] = await Promise.all([
       getShopifyConnectionStatus(
         configured
           ? prismaShopifyConnectionStatusStore
@@ -65,6 +73,7 @@ export default async function ProjectWorkspacePage({
         tenant.workspace.id,
         project.id,
       ),
+      getUserShopifyMetafields(user.id, project.id),
     ]);
     const connected = (
       connection.status === 'CONNECTED'
@@ -108,6 +117,13 @@ export default async function ProjectWorkspacePage({
           canManage: tenant.role === 'OWNER' && project.status !== 'ARCHIVED',
           hasPublishedProduct: Boolean(publication),
           configuration: variantConfiguration,
+        }}
+        shopifyMetafields={{
+          configured,
+          connected,
+          canManage: tenant.role === 'OWNER' && project.status !== 'ARCHIVED',
+          hasPublishedProduct: Boolean(publication),
+          configuration: metafieldConfiguration,
         }}
       />
     );
