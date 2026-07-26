@@ -24,9 +24,13 @@ import {
   type SavedProjectWorkspace,
 } from '@/modules/projects/client/use-project-autosave';
 import { ShopifyPublishingPanel } from '@/modules/shopify/components/ShopifyPublishingPanel';
+import { ShopifyVariantsPanel } from '@/modules/shopify/components/ShopifyVariantsPanel';
 import type {
   ShopifyPublishingContext,
 } from '@/modules/shopify/publishing/publication-types';
+import type {
+  ShopifyVariantConfigurationDto,
+} from '@/modules/shopify/variants/variant-validation';
 import type { DemoProduct, PipelineStage, TruthRow } from '@/types/product';
 
 const stageOrder: PipelineStage[] = ['input', 'extract', 'verify', 'generate', 'review', 'export'];
@@ -137,6 +141,13 @@ interface ListingWorkspaceProps {
   initialProject?: SavedProjectWorkspace;
   canManage?: boolean;
   shopifyPublishing?: ShopifyPublishingContext;
+  shopifyVariants?: {
+    configured: boolean;
+    connected: boolean;
+    canManage: boolean;
+    hasPublishedProduct: boolean;
+    configuration: ShopifyVariantConfigurationDto;
+  };
 }
 
 function projectSourceToInputMode(
@@ -158,6 +169,7 @@ export function ListingWorkspace({
   initialProject,
   canManage = true,
   shopifyPublishing,
+  shopifyVariants,
 }: ListingWorkspaceProps) {
   const analysisRequestRef = useRef<AbortController | null>(null);
   const restoredAnalysis = initialProject?.analysisData;
@@ -241,6 +253,9 @@ export function ListingWorkspace({
   );
   const [activeProduct, setActiveProduct] = useState<DemoProduct>(restoredProduct);
   const [listingContent, setListingContent] = useState(restoredListing);
+  const [hasPublishedShopifyProduct, setHasPublishedShopifyProduct] = useState(
+    shopifyVariants?.hasPublishedProduct ?? false,
+  );
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -874,6 +889,17 @@ export function ListingWorkspace({
                     },
                   }}
                   initialContext={shopifyPublishing}
+                  onPublicationChange={setHasPublishedShopifyProduct}
+                />
+              ) : null}
+              {initialProject && shopifyVariants ? (
+                <ShopifyVariantsPanel
+                  projectId={initialProject.id}
+                  configured={shopifyVariants.configured}
+                  connected={shopifyVariants.connected}
+                  canManage={shopifyVariants.canManage}
+                  hasPublishedProduct={hasPublishedShopifyProduct}
+                  initialConfiguration={shopifyVariants.configuration}
                 />
               ) : null}
               <ProductTruthTable rows={truthRows} visibleCount={visibleRows} />

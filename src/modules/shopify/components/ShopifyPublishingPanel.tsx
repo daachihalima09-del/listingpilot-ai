@@ -43,10 +43,12 @@ export function ShopifyPublishingPanel({
   projectId,
   source,
   initialContext,
+  onPublicationChange,
 }: {
   projectId: string;
   source: ListingPilotPublishSource;
   initialContext: ShopifyPublishingContext;
+  onPublicationChange?: (published: boolean) => void;
 }) {
   const client = useRef(createShopifyPublicationClient());
   const submitting = useRef(false);
@@ -123,6 +125,7 @@ export function ShopifyPublishingPanel({
       } else {
         recoveryReceiptRef.current = null;
         setLinkPending(false);
+        onPublicationChange?.(true);
         try {
           window.sessionStorage.removeItem(key);
         } catch {

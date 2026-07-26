@@ -33,6 +33,8 @@ test('merchant application and product-analysis routes are protected', () => {
     '/api/shopify/products',
   '/api/shopify/products/123456789',
   '/api/projects/11111111-1111-4111-8111-111111111111/shopify-publication',
+  '/api/projects/11111111-1111-4111-8111-111111111111/shopify-variants',
+  '/api/projects/11111111-1111-4111-8111-111111111111/shopify-variants/publish',
     '/settings/shopify',
   ]) {
     assert.deepEqual(

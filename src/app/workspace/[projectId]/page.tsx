@@ -13,6 +13,9 @@ import {
   prismaShopifyProductPublicationRepository,
 } from '@/modules/shopify/repositories/prisma-product-publication-repository';
 import {
+  prismaShopifyVariantRepository,
+} from '@/modules/shopify/repositories/prisma-variant-repository';
+import {
   buildTrustedShopifyAdminProductUrl,
 } from '@/modules/shopify/publishing/publishing-view';
 import {
@@ -44,7 +47,7 @@ export default async function ProjectWorkspacePage({
       projectId,
     });
     const configured = hasValidShopifyConfig();
-    const [connection, publication] = await Promise.all([
+    const [connection, publication, variantConfiguration] = await Promise.all([
       getShopifyConnectionStatus(
         configured
           ? prismaShopifyConnectionStatusStore
@@ -55,6 +58,10 @@ export default async function ProjectWorkspacePage({
         },
       ),
       prismaShopifyProductPublicationRepository.findForProject(
+        tenant.workspace.id,
+        project.id,
+      ),
+      prismaShopifyVariantRepository.getDto(
         tenant.workspace.id,
         project.id,
       ),
@@ -94,6 +101,13 @@ export default async function ProjectWorkspacePage({
                 publication.id,
               )
             : null,
+        }}
+        shopifyVariants={{
+          configured,
+          connected,
+          canManage: tenant.role === 'OWNER' && project.status !== 'ARCHIVED',
+          hasPublishedProduct: Boolean(publication),
+          configuration: variantConfiguration,
         }}
       />
     );
