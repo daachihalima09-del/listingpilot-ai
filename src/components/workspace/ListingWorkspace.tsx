@@ -2,6 +2,7 @@
 
 import { Download, FolderKanban, Save, Sparkles } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AIDetective } from '@/components/workspace/AIDetective';
 import { ActivityTimeline } from '@/components/workspace/ActivityTimeline';
@@ -27,12 +28,18 @@ import { ShopifyPublishingPanel } from '@/modules/shopify/components/ShopifyPubl
 import { ShopifyVariantsPanel } from '@/modules/shopify/components/ShopifyVariantsPanel';
 import { ShopifyMetafieldsPanel } from '@/modules/shopify/components/ShopifyMetafieldsPanel';
 import { ShopifyImagesPanel } from '@/modules/shopify/components/ShopifyImagesPanel';
+import {
+  ShopifyPublicationCoordinatorPanel,
+} from '@/modules/shopify/components/ShopifyPublicationCoordinatorPanel';
 import type {
   ShopifyMetafieldConfigurationDto,
 } from '@/modules/shopify/metafields/metafield-repository';
 import type {
   ShopifyImageConfigurationDto,
 } from '@/modules/shopify/images/image-repository';
+import type {
+  CoordinatorExecutionDto,
+} from '@/modules/shopify/coordinator/coordinator-types';
 import type {
   ShopifyPublishingContext,
 } from '@/modules/shopify/publishing/publication-types';
@@ -149,6 +156,12 @@ interface ListingWorkspaceProps {
   initialProject?: SavedProjectWorkspace;
   canManage?: boolean;
   shopifyPublishing?: ShopifyPublishingContext;
+  shopifyCoordinator?: {
+    configured: boolean;
+    connected: boolean;
+    canManage: boolean;
+    coordinator: CoordinatorExecutionDto;
+  };
   shopifyVariants?: {
     configured: boolean;
     connected: boolean;
@@ -191,10 +204,12 @@ export function ListingWorkspace({
   initialProject,
   canManage = true,
   shopifyPublishing,
+  shopifyCoordinator,
   shopifyVariants,
   shopifyMetafields,
   shopifyImages,
 }: ListingWorkspaceProps) {
+  const router = useRouter();
   const analysisRequestRef = useRef<AbortController | null>(null);
   const restoredAnalysis = initialProject?.analysisData;
   const restoredReadiness = initialProject?.readinessData;
@@ -212,6 +227,7 @@ export function ListingWorkspace({
   const [inputMode, setInputMode] = useState<InputMode>(
     projectSourceToInputMode(initialProject?.sourceType ?? null),
   );
+  const [shopifyPanelGeneration, setShopifyPanelGeneration] = useState(0);
   const [analysisStarted, setAnalysisStarted] = useState(
     restoredReadiness?.analysisStarted ?? false,
   );
@@ -899,8 +915,26 @@ export function ListingWorkspace({
                 }}
                 readOnly={isReadOnly}
               />
+              {initialProject && shopifyCoordinator ? (
+                <ShopifyPublicationCoordinatorPanel
+                  projectId={initialProject.id}
+                  configured={shopifyCoordinator.configured}
+                  connected={shopifyCoordinator.connected}
+                  canManage={shopifyCoordinator.canManage}
+                  initialCoordinator={shopifyCoordinator.coordinator}
+                  onCompleted={(result) => {
+                    const product = result.steps.find(({ step }) => step === 'PRODUCT');
+                    if (product && ['SUCCEEDED', 'UNCHANGED'].includes(product.status)) {
+                      setHasPublishedShopifyProduct(true);
+                    }
+                    setShopifyPanelGeneration((current) => current + 1);
+                    router.refresh();
+                  }}
+                />
+              ) : null}
               {initialProject && shopifyPublishing ? (
                 <ShopifyPublishingPanel
+                  key={`product-${shopifyPanelGeneration}`}
                   projectId={initialProject.id}
                   source={{
                     listing: {
@@ -918,6 +952,7 @@ export function ListingWorkspace({
               ) : null}
               {initialProject && shopifyVariants ? (
                 <ShopifyVariantsPanel
+                  key={`variants-${shopifyPanelGeneration}`}
                   projectId={initialProject.id}
                   configured={shopifyVariants.configured}
                   connected={shopifyVariants.connected}
@@ -928,6 +963,7 @@ export function ListingWorkspace({
               ) : null}
               {initialProject && shopifyMetafields ? (
                 <ShopifyMetafieldsPanel
+                  key={`metafields-${shopifyPanelGeneration}`}
                   projectId={initialProject.id}
                   configured={shopifyMetafields.configured}
                   connected={shopifyMetafields.connected}
@@ -938,6 +974,7 @@ export function ListingWorkspace({
               ) : null}
               {initialProject && shopifyImages ? (
                 <ShopifyImagesPanel
+                  key={`images-${shopifyPanelGeneration}`}
                   projectId={initialProject.id}
                   configured={shopifyImages.configured}
                   connected={shopifyImages.connected}

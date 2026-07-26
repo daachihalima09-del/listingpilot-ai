@@ -66,23 +66,60 @@ enum ShopifyImageUploadSessionStatus {
   CONSUMED
 }
 
+enum ShopifyPublicationExecutionStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  UNCHANGED
+  PARTIAL
+  PENDING
+  FAILED
+  CANCELLED
+}
+
+enum ShopifyPublicationTriggerType {
+  MANUAL_FULL
+  MANUAL_RETRY
+  REFRESH_PENDING
+}
+
+enum ShopifyPublicationStep {
+  PRODUCT
+  VARIANTS
+  METAFIELDS
+  IMAGES
+}
+
+enum ShopifyPublicationStepStatus {
+  NOT_STARTED
+  RUNNING
+  SUCCEEDED
+  UNCHANGED
+  SKIPPED
+  PENDING
+  PARTIAL
+  FAILED
+  BLOCKED
+}
+
 model User {
-  id                         String                      @id @default(uuid()) @db.Uuid
-  email                      String                      @unique @db.VarChar(320)
-  emailVerified              DateTime?                   @map("email_verified")
-  passwordHash               String?                     @map("password_hash") @db.Text
-  name                       String?                     @db.VarChar(200)
-  image                      String?                     @db.Text
-  status                     UserStatus                  @default(ACTIVE)
-  lastLoginAt                DateTime?                   @map("last_login_at")
-  createdAt                  DateTime                    @default(now()) @map("created_at")
-  updatedAt                  DateTime                    @updatedAt @map("updated_at")
-  accounts                   Account[]
-  sessions                   Session[]
-  memberships                Membership[]
-  auditLogs                  AuditLog[]
-  shopifyOAuthStates         ShopifyOAuthState[]
-  shopifyImageUploadSessions ShopifyImageUploadSession[]
+  id                           String                        @id @default(uuid()) @db.Uuid
+  email                        String                        @unique @db.VarChar(320)
+  emailVerified                DateTime?                     @map("email_verified")
+  passwordHash                 String?                       @map("password_hash") @db.Text
+  name                         String?                       @db.VarChar(200)
+  image                        String?                       @db.Text
+  status                       UserStatus                    @default(ACTIVE)
+  lastLoginAt                  DateTime?                     @map("last_login_at")
+  createdAt                    DateTime                      @default(now()) @map("created_at")
+  updatedAt                    DateTime                      @updatedAt @map("updated_at")
+  accounts                     Account[]
+  sessions                     Session[]
+  memberships                  Membership[]
+  auditLogs                    AuditLog[]
+  shopifyOAuthStates           ShopifyOAuthState[]
+  shopifyImageUploadSessions   ShopifyImageUploadSession[]
+  shopifyPublicationExecutions ShopifyPublicationExecution[]
 
   @@index([status])
   @@map("users")
@@ -142,6 +179,7 @@ model Project {
   shopifyMetafieldConfiguration ShopifyMetafieldConfiguration?
   shopifyImageConfiguration     ShopifyImageConfiguration?
   shopifyImageUploadSessions    ShopifyImageUploadSession[]
+  shopifyPublicationExecutions  ShopifyPublicationExecution[]
 
   @@unique([id, workspaceId])
   @@index([workspaceId])
@@ -295,7 +333,9 @@ model ShopifyStore {
   updatedAt                DateTime                         @updatedAt @map("updated_at")
   workspace                Workspace                        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   metafieldDefinitionLinks ShopifyMetafieldDefinitionLink[]
+  publicationExecutions    ShopifyPublicationExecution[]
 
+  @@unique([id, workspaceId])
   @@index([workspaceId])
   @@index([workspaceId, status])
   @@index([status])
@@ -385,6 +425,56 @@ model ShopifyImageUploadSession {
   @@index([projectId, workspaceId, userId])
   @@index([expiresAt, status])
   @@map("shopify_image_upload_sessions")
+}
+
+model ShopifyPublicationExecution {
+  id                   String                            @id @default(uuid()) @db.Uuid
+  projectId            String                            @map("project_id") @db.Uuid
+  workspaceId          String                            @map("workspace_id") @db.Uuid
+  shopifyStoreId       String                            @map("shopify_store_id") @db.Uuid
+  requestedByUserId    String                            @map("requested_by_user_id") @db.Uuid
+  status               ShopifyPublicationExecutionStatus @default(QUEUED)
+  triggerType          ShopifyPublicationTriggerType     @map("trigger_type")
+  executionNumber      Int                               @map("execution_number")
+  activeLeaseProjectId String?                           @unique @map("active_lease_project_id") @db.Uuid
+  startedAt            DateTime                          @default(now()) @map("started_at")
+  completedAt          DateTime?                         @map("completed_at")
+  lastHeartbeatAt      DateTime                          @default(now()) @map("last_heartbeat_at")
+  createdAt            DateTime                          @default(now()) @map("created_at")
+  updatedAt            DateTime                          @updatedAt @map("updated_at")
+  project              Project                           @relation(fields: [projectId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  shopifyStore         ShopifyStore                      @relation(fields: [shopifyStoreId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  requestedByUser      User                              @relation(fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  steps                ShopifyPublicationStepExecution[]
+
+  @@unique([projectId, executionNumber])
+  @@index([projectId, createdAt])
+  @@index([workspaceId, status])
+  @@index([shopifyStoreId])
+  @@map("shopify_publication_executions")
+}
+
+model ShopifyPublicationStepExecution {
+  id                String                       @id @default(uuid()) @db.Uuid
+  executionId       String                       @map("execution_id") @db.Uuid
+  step              ShopifyPublicationStep
+  status            ShopifyPublicationStepStatus @default(NOT_STARTED)
+  attemptNumber     Int                          @default(0) @map("attempt_number")
+  startedAt         DateTime?                    @map("started_at")
+  completedAt       DateTime?                    @map("completed_at")
+  retryable         Boolean                      @default(false)
+  blocking          Boolean                      @default(false)
+  safeErrorCategory String?                      @map("safe_error_category") @db.VarChar(100)
+  safeMessage       String?                      @map("safe_message") @db.VarChar(500)
+  resultSummary     Json?                        @map("result_summary") @db.JsonB
+  freshnessKey      String?                      @map("freshness_key") @db.VarChar(200)
+  createdAt         DateTime                     @default(now()) @map("created_at")
+  updatedAt         DateTime                     @updatedAt @map("updated_at")
+  execution         ShopifyPublicationExecution  @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@unique([executionId, step])
+  @@index([executionId, status])
+  @@map("shopify_publication_step_executions")
 }
 
 model ShopifyOAuthState {
