@@ -5,6 +5,19 @@ import { requireAuthenticatedUser } from '@/modules/auth/server/context';
 import { getProjectPageTenantContext } from '@/modules/projects/server/project-page-context';
 import { getUserProject } from '@/modules/projects/server/project-operations';
 import { ProjectError } from '@/modules/projects/types/errors';
+import { hasValidShopifyConfig } from '@/modules/shopify/config';
+import {
+  prismaShopifyConnectionStatusStore,
+} from '@/modules/shopify/repositories/prisma-connection-status-store';
+import {
+  prismaShopifyProductPublicationRepository,
+} from '@/modules/shopify/repositories/prisma-product-publication-repository';
+import {
+  buildTrustedShopifyAdminProductUrl,
+} from '@/modules/shopify/publishing/publishing-view';
+import {
+  getShopifyConnectionStatus,
+} from '@/modules/shopify/services/connection-status';
 import { TenantAccessError } from '@/modules/tenancy/server/tenant-context';
 
 interface SavedProjectWorkspacePageProps {
@@ -30,6 +43,26 @@ export default async function ProjectWorkspacePage({
       workspaceId: tenant.workspace.id,
       projectId,
     });
+    const configured = hasValidShopifyConfig();
+    const [connection, publication] = await Promise.all([
+      getShopifyConnectionStatus(
+        configured
+          ? prismaShopifyConnectionStatusStore
+          : { async findByWorkspaceId() { return null; } },
+        {
+          workspaceId: tenant.workspace.id,
+          role: tenant.role,
+        },
+      ),
+      prismaShopifyProductPublicationRepository.findForProject(
+        tenant.workspace.id,
+        project.id,
+      ),
+    ]);
+    const connected = (
+      connection.status === 'CONNECTED'
+      || connection.status === 'ACTIVE'
+    );
 
     return (
       <ListingWorkspace
@@ -50,6 +83,18 @@ export default async function ProjectWorkspacePage({
           readinessData: project.readinessData,
         }}
         canManage={tenant.role === 'OWNER'}
+        shopifyPublishing={{
+          configured,
+          connected,
+          canManage: tenant.role === 'OWNER' && project.status !== 'ARCHIVED',
+          publication,
+          adminUrl: connected && publication
+            ? buildTrustedShopifyAdminProductUrl(
+                connection.shopDomain,
+                publication.id,
+              )
+            : null,
+        }}
       />
     );
   } catch (error) {

@@ -40,6 +40,11 @@ enum ShopifyStoreStatus {
   REVOKED
 }
 
+enum ShopifyProductPublicationStatus {
+  ACTIVE
+  DRAFT
+}
+
 model User {
   id                 String              @id @default(uuid()) @db.Uuid
   email              String              @unique @db.VarChar(320)
@@ -93,29 +98,51 @@ model Workspace {
 }
 
 model Project {
-  id                  String             @id @default(uuid()) @db.Uuid
-  workspaceId         String             @map("workspace_id") @db.Uuid
-  name                String             @db.VarChar(200)
-  status              ProjectStatus      @default(DRAFT)
-  statusBeforeArchive ProjectStatus?     @map("status_before_archive")
-  sourceType          ProjectSourceType? @map("source_type")
-  sourceUrl           String?            @map("source_url") @db.Text
-  rawInput            String?            @map("raw_input") @db.Text
-  analysisData        Json?              @map("analysis_data") @db.JsonB
-  generatedListing    Json?              @map("generated_listing") @db.JsonB
-  seoData             Json?              @map("seo_data") @db.JsonB
-  readinessData       Json?              @map("readiness_data") @db.JsonB
-  version             Int                @default(1)
-  archivedAt          DateTime?          @map("archived_at")
-  createdAt           DateTime           @default(now()) @map("created_at")
-  updatedAt           DateTime           @updatedAt @map("updated_at")
-  workspace           Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  id                        String                     @id @default(uuid()) @db.Uuid
+  workspaceId               String                     @map("workspace_id") @db.Uuid
+  name                      String                     @db.VarChar(200)
+  status                    ProjectStatus              @default(DRAFT)
+  statusBeforeArchive       ProjectStatus?             @map("status_before_archive")
+  sourceType                ProjectSourceType?         @map("source_type")
+  sourceUrl                 String?                    @map("source_url") @db.Text
+  rawInput                  String?                    @map("raw_input") @db.Text
+  analysisData              Json?                      @map("analysis_data") @db.JsonB
+  generatedListing          Json?                      @map("generated_listing") @db.JsonB
+  seoData                   Json?                      @map("seo_data") @db.JsonB
+  readinessData             Json?                      @map("readiness_data") @db.JsonB
+  version                   Int                        @default(1)
+  archivedAt                DateTime?                  @map("archived_at")
+  createdAt                 DateTime                   @default(now()) @map("created_at")
+  updatedAt                 DateTime                   @updatedAt @map("updated_at")
+  workspace                 Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  shopifyProductPublication ShopifyProductPublication?
 
+  @@unique([id, workspaceId])
   @@index([workspaceId])
   @@index([workspaceId, updatedAt])
   @@index([workspaceId, status])
   @@index([archivedAt])
   @@map("projects")
+}
+
+model ShopifyProductPublication {
+  id               String                          @id @default(uuid()) @db.Uuid
+  projectId        String                          @map("project_id") @db.Uuid
+  workspaceId      String                          @map("workspace_id") @db.Uuid
+  shopifyProductId String                          @map("shopify_product_id") @db.VarChar(20)
+  shopifyHandle    String?                         @map("shopify_handle") @db.VarChar(255)
+  shopifyTitle     String                          @map("shopify_title") @db.VarChar(255)
+  lastStatus       ShopifyProductPublicationStatus @map("last_status")
+  firstPublishedAt DateTime                        @default(now()) @map("first_published_at")
+  lastPublishedAt  DateTime                        @default(now()) @map("last_published_at")
+  createdAt        DateTime                        @default(now()) @map("created_at")
+  updatedAt        DateTime                        @updatedAt @map("updated_at")
+  project          Project                         @relation(fields: [projectId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+
+  @@unique([projectId, workspaceId])
+  @@unique([workspaceId, shopifyProductId])
+  @@index([workspaceId, lastPublishedAt])
+  @@map("shopify_product_publications")
 }
 
 model ShopifyStore {

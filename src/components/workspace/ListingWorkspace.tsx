@@ -23,6 +23,10 @@ import {
   type ProjectSaveSnapshot,
   type SavedProjectWorkspace,
 } from '@/modules/projects/client/use-project-autosave';
+import { ShopifyPublishingPanel } from '@/modules/shopify/components/ShopifyPublishingPanel';
+import type {
+  ShopifyPublishingContext,
+} from '@/modules/shopify/publishing/publication-types';
 import type { DemoProduct, PipelineStage, TruthRow } from '@/types/product';
 
 const stageOrder: PipelineStage[] = ['input', 'extract', 'verify', 'generate', 'review', 'export'];
@@ -132,6 +136,7 @@ function buildAnalyzedProduct(analysis: ProductAnalysis, source: AnalysisSourceO
 interface ListingWorkspaceProps {
   initialProject?: SavedProjectWorkspace;
   canManage?: boolean;
+  shopifyPublishing?: ShopifyPublishingContext;
 }
 
 function projectSourceToInputMode(
@@ -152,6 +157,7 @@ function projectSourceToInputMode(
 export function ListingWorkspace({
   initialProject,
   canManage = true,
+  shopifyPublishing,
 }: ListingWorkspaceProps) {
   const analysisRequestRef = useRef<AbortController | null>(null);
   const restoredAnalysis = initialProject?.analysisData;
@@ -854,6 +860,22 @@ export function ListingWorkspace({
                 }}
                 readOnly={isReadOnly}
               />
+              {initialProject && shopifyPublishing ? (
+                <ShopifyPublishingPanel
+                  projectId={initialProject.id}
+                  source={{
+                    listing: {
+                      title: listingContent.title,
+                      description: listingContent.description,
+                      tags: listingContent.tags,
+                    },
+                    product: {
+                      brand: activeProduct.brand,
+                    },
+                  }}
+                  initialContext={shopifyPublishing}
+                />
+              ) : null}
               <ProductTruthTable rows={truthRows} visibleCount={visibleRows} />
               <RecentAnalyses product={activeProduct} />
             </div>
