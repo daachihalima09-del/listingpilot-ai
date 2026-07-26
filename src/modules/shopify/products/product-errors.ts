@@ -2,6 +2,7 @@ import { ShopifyAdminApiError } from '../admin/errors.ts';
 
 export type ShopifyProductPublishErrorCode =
   | 'SHOPIFY_PRODUCT_FORBIDDEN'
+  | 'SHOPIFY_PRODUCT_NOT_FOUND'
   | 'SHOPIFY_PRODUCT_STORE_NOT_CONNECTED'
   | 'SHOPIFY_PRODUCT_REAUTHORIZATION_REQUIRED'
   | 'SHOPIFY_PRODUCT_VALIDATION_FAILED'
@@ -12,12 +13,12 @@ export type ShopifyProductPublishErrorCode =
 
 export class ShopifyProductPublishError extends Error {
   readonly code: ShopifyProductPublishErrorCode;
-  readonly statusCode: 403 | 409 | 422 | 429 | 502 | 503 | 504;
+  readonly statusCode: 403 | 404 | 409 | 422 | 429 | 502 | 503 | 504;
 
   constructor(
     code: ShopifyProductPublishErrorCode,
     message: string,
-    statusCode: 403 | 409 | 422 | 429 | 502 | 503 | 504,
+    statusCode: 403 | 404 | 409 | 422 | 429 | 502 | 503 | 504,
     options?: ErrorOptions,
   ) {
     super(message, options);
@@ -34,7 +35,7 @@ export function normalizeShopifyProductError(
   if (!(error instanceof ShopifyAdminApiError)) {
     return new ShopifyProductPublishError(
       'SHOPIFY_PRODUCT_UNAVAILABLE',
-      'The Shopify product could not be created.',
+      'The Shopify product operation could not be completed.',
       503,
       { cause: error },
     );
@@ -60,6 +61,13 @@ export function normalizeShopifyProductError(
         'SHOPIFY_PRODUCT_VALIDATION_FAILED',
         'Shopify rejected the product details.',
         422,
+        { cause: error },
+      );
+    case 'SHOPIFY_ADMIN_NOT_FOUND':
+      return new ShopifyProductPublishError(
+        'SHOPIFY_PRODUCT_NOT_FOUND',
+        'The Shopify product was not found.',
+        404,
         { cause: error },
       );
     case 'SHOPIFY_ADMIN_RATE_LIMITED':

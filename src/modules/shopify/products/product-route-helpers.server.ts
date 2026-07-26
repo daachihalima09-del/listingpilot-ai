@@ -16,6 +16,12 @@ export function readShopifyProductCreateBody(
   return readBoundedJsonRequest(request, MAX_PRODUCT_CREATE_BODY_BYTES);
 }
 
+export function readShopifyProductUpdateBody(
+  request: Request,
+): Promise<unknown> {
+  return readBoundedJsonRequest(request, MAX_PRODUCT_CREATE_BODY_BYTES);
+}
+
 export function unauthenticatedShopifyProductResponse(): NextResponse {
   return NextResponse.json({
     error: {
@@ -56,13 +62,13 @@ export function shopifyProductRouteErrorResponse(
     }, { status: error.statusCode });
   }
 
-  console.error('Unable to publish Shopify product.', {
+  console.error('Unable to complete Shopify product operation.', {
     errorName: error instanceof Error ? error.name : 'UnknownError',
   });
   return NextResponse.json({
     error: {
-      code: 'SHOPIFY_PRODUCT_CREATE_FAILED',
-      message: 'The Shopify product could not be created.',
+      code: 'SHOPIFY_PRODUCT_OPERATION_FAILED',
+      message: 'The Shopify product operation could not be completed.',
     },
   }, { status: 500 });
 }

@@ -8,9 +8,18 @@ import {
 import type {
   ShopifyProductAuditRepository,
 } from '../products/product-creation-service';
+import {
+  createShopifyProductUpdateRepository,
+} from '../products/product-update-repository';
+import type {
+  ShopifyProductUpdateAuditRepository,
+} from '../products/product-update-service';
 
 export const shopifyProductCreationRepository =
   createShopifyProductCreationRepository(requestShopifyAdminApi);
+
+export const shopifyProductUpdateRepository =
+  createShopifyProductUpdateRepository(requestShopifyAdminApi);
 
 export const prismaShopifyProductAuditRepository:
 ShopifyProductAuditRepository = {
@@ -27,6 +36,27 @@ ShopifyProductAuditRepository = {
           shopifyProductId: input.product.id,
           title: input.product.title,
           handle: input.product.handle,
+          status: input.product.status,
+        },
+      },
+    });
+  },
+};
+
+export const prismaShopifyProductUpdateAuditRepository:
+ShopifyProductUpdateAuditRepository = {
+  async recordUpdated(input) {
+    await prisma.auditLog.create({
+      data: {
+        organizationId: input.organizationId,
+        workspaceId: input.workspaceId,
+        userId: input.actorUserId,
+        action: 'shopify.product_updated',
+        entityType: 'ShopifyProduct',
+        entityId: input.product.id,
+        metadata: {
+          shopifyProductId: input.product.id,
+          changedFields: input.changedFields,
           status: input.product.status,
         },
       },

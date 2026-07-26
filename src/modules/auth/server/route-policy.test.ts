@@ -31,6 +31,7 @@ test('merchant application and product-analysis routes are protected', () => {
     '/api/shopify/callback',
     '/api/shopify/disconnect',
     '/api/shopify/products',
+    '/api/shopify/products/123456789',
     '/settings/shopify',
   ]) {
     assert.deepEqual(
