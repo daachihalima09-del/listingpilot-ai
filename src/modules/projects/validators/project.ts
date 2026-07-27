@@ -6,6 +6,7 @@ export const projectSourceTypes = [
   'SUPPLIER_URL',
   'PRODUCT_URL',
   'UPLOADED_PDF',
+  'SHOPIFY_IMPORT',
 ] as const;
 export const pipelineStages = [
   'input',

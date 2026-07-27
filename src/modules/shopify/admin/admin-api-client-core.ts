@@ -17,6 +17,7 @@ export interface ShopifyAdminRequest {
   path: string;
   query?: Record<string, string | number | boolean | undefined>;
   body?: unknown;
+  retrySafe?: boolean;
 }
 
 export interface ShopifyAdminResponse {
@@ -56,8 +57,8 @@ function assertSafePath(path: string): void {
   }
 }
 
-function isRetrySafe(method: ShopifyAdminMethod): boolean {
-  return method === 'GET' || method === 'HEAD';
+function isRetrySafe(method: ShopifyAdminMethod, explicitlySafe = false): boolean {
+  return explicitlySafe || method === 'GET' || method === 'HEAD';
 }
 
 function retryDelay(attempt: number, random: () => number): number {
@@ -141,7 +142,7 @@ export function createShopifyAdminApiClient(
 
           const normalized = normalizeShopifyResponseError(response);
           if (
-            !isRetrySafe(method)
+            !isRetrySafe(method, input.retrySafe)
             || !normalized.retryable
             || attempt >= maximumRetries
           ) {
@@ -162,7 +163,7 @@ export function createShopifyAdminApiClient(
             retryable: true,
             cause: error,
           });
-          if (!isRetrySafe(method) || attempt >= maximumRetries) {
+          if (!isRetrySafe(method, input.retrySafe) || attempt >= maximumRetries) {
             throw normalized;
           }
           await sleep(retryDelay(attempt, random));

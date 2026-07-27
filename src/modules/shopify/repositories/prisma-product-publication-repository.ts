@@ -102,6 +102,16 @@ ShopifyProductPublicationRepository = {
           },
         },
         shopifyProductPublication: true,
+        shopifyProductImportLink: {
+          select: {
+            shopifyProductLegacyId: true,
+            workspaceId: true,
+            shopifyStore: {
+              select: { workspaceId: true },
+            },
+            status: true,
+          },
+        },
       },
     });
     const membership = project?.workspace.organization.memberships[0];
@@ -115,6 +125,17 @@ ShopifyProductPublicationRepository = {
       role: membership.role,
       publication: project.shopifyProductPublication
         ? toReference(project.shopifyProductPublication)
+        : null,
+      importedProductLink: project.shopifyProductImportLink
+        ? {
+            valid: (
+              project.shopifyProductImportLink.status === 'LINKED'
+              && project.shopifyProductImportLink.workspaceId === project.workspaceId
+              && project.shopifyProductImportLink.shopifyStore.workspaceId === project.workspaceId
+              && project.shopifyProductPublication?.shopifyProductId
+                === project.shopifyProductImportLink.shopifyProductLegacyId
+            ),
+          }
         : null,
     };
   },

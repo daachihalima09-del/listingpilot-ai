@@ -8,6 +8,9 @@ export interface ShopifyPublicationProjectContext {
   projectId: string;
   role: 'OWNER' | 'ADMIN' | 'MEMBER' | 'VIEWER';
   publication: ShopifyPublishedProductReference | null;
+  importedProductLink?: {
+    valid: boolean;
+  } | null;
 }
 
 export interface ShopifyProductPublicationRepository {

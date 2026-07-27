@@ -38,6 +38,7 @@ export interface ProjectSummary {
     | 'SUPPLIER_URL'
     | 'PRODUCT_URL'
     | 'UPLOADED_PDF'
+    | 'SHOPIFY_IMPORT'
     | null;
   sourceUrl: string | null;
   readiness: {

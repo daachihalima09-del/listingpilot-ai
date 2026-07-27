@@ -170,6 +170,20 @@ export async function publishShopifyProject(
     );
   }
 
+  if (authorized.importedProductLink && !authorized.importedProductLink.valid) {
+    throw new ShopifyPublicationError(
+      'SHOPIFY_PUBLICATION_LINK_CONFLICT',
+      'The imported Shopify product link is inconsistent and cannot be published.',
+      409,
+    );
+  }
+  if (!authorized.publication && authorized.importedProductLink) {
+    throw new ShopifyPublicationError(
+      'SHOPIFY_PUBLICATION_LINK_CONFLICT',
+      'The imported Shopify product link is incomplete and cannot create a replacement product.',
+      409,
+    );
+  }
   if (!authorized.publication) {
     const product = await createShopifyProduct({
       products: dependencies.products,

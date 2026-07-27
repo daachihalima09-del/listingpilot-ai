@@ -3,7 +3,8 @@ export type ShopifyPublicationErrorCode =
   | 'SHOPIFY_PUBLICATION_NOT_FOUND'
   | 'SHOPIFY_CONFIGURATION_MISSING'
   | 'SHOPIFY_PUBLICATION_RECOVERY_INVALID'
-  | 'SHOPIFY_PUBLICATION_PERSISTENCE_FAILED';
+  | 'SHOPIFY_PUBLICATION_PERSISTENCE_FAILED'
+  | 'SHOPIFY_PUBLICATION_LINK_CONFLICT';
 
 export class ShopifyPublicationError extends Error {
   readonly code: ShopifyPublicationErrorCode;

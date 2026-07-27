@@ -7,7 +7,7 @@ import { usePathname } from 'next/navigation';
 const navItems = [
   { label: 'Dashboard', icon: LayoutGrid, href: '/' },
   { label: 'Saved Projects', icon: FolderKanban, href: '/projects' },
-  { label: 'Catalog', icon: Blocks },
+  { label: 'Catalog', icon: Blocks, href: '/catalog/shopify' },
   { label: 'Truth Workspace', icon: Sparkles },
   { label: 'Review', icon: SquareCheckBig },
   { label: 'Export', icon: FileSpreadsheet },
