@@ -13,6 +13,7 @@ export async function createShopifyOAuthState(input: {
   workspaceId: string;
   shopDomain: string;
   expiresAt: Date;
+  launchIntentId?: string | null;
 }): Promise<void> {
   await prisma.shopifyOAuthState.create({
     data: {
@@ -21,6 +22,7 @@ export async function createShopifyOAuthState(input: {
       workspaceId: input.workspaceId,
       shopDomain: input.shopDomain,
       expiresAt: input.expiresAt,
+      launchIntentId: input.launchIntentId ?? null,
     },
   });
 }
@@ -38,6 +40,7 @@ export async function findShopifyOAuthState(
       shopDomain: true,
       expiresAt: true,
       consumedAt: true,
+      launchIntentId: true,
     },
   });
 }

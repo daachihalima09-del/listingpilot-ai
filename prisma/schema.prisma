@@ -40,6 +40,19 @@ enum ShopifyStoreStatus {
   REVOKED
 }
 
+enum ShopifyLaunchIntentStatus {
+  PENDING
+  WORKSPACE_SELECTED
+  OAUTH_STARTED
+  COMPLETED
+  EXPIRED
+}
+
+enum ShopifyLaunchOrigin {
+  DISTRIBUTION_INSTALL
+  SHOPIFY_LAUNCH
+}
+
 enum ShopifyProductPublicationStatus {
   ACTIVE
   DRAFT
@@ -118,6 +131,7 @@ model User {
   memberships                  Membership[]
   auditLogs                    AuditLog[]
   shopifyOAuthStates           ShopifyOAuthState[]
+  shopifyLaunchIntents         ShopifyLaunchIntent[]
   shopifyImageUploadSessions   ShopifyImageUploadSession[]
   shopifyPublicationExecutions ShopifyPublicationExecution[]
 
@@ -139,17 +153,18 @@ model Organization {
 }
 
 model Workspace {
-  id                 String              @id @default(uuid()) @db.Uuid
-  organizationId     String              @map("organization_id") @db.Uuid
-  name               String              @db.VarChar(200)
-  slug               String              @db.VarChar(100)
-  createdAt          DateTime            @default(now()) @map("created_at")
-  updatedAt          DateTime            @updatedAt @map("updated_at")
-  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  auditLogs          AuditLog[]
-  projects           Project[]
-  shopifyStores      ShopifyStore[]
-  shopifyOAuthStates ShopifyOAuthState[]
+  id                   String                @id @default(uuid()) @db.Uuid
+  organizationId       String                @map("organization_id") @db.Uuid
+  name                 String                @db.VarChar(200)
+  slug                 String                @db.VarChar(100)
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @updatedAt @map("updated_at")
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  auditLogs            AuditLog[]
+  projects             Project[]
+  shopifyStores        ShopifyStore[]
+  shopifyOAuthStates   ShopifyOAuthState[]
+  shopifyLaunchIntents ShopifyLaunchIntent[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -478,20 +493,47 @@ model ShopifyPublicationStepExecution {
 }
 
 model ShopifyOAuthState {
-  id          String    @id @default(uuid()) @db.Uuid
-  stateHash   String    @unique @map("state_hash") @db.Char(64)
-  userId      String    @map("user_id") @db.Uuid
-  workspaceId String    @map("workspace_id") @db.Uuid
-  shopDomain  String    @map("shop_domain") @db.VarChar(255)
-  expiresAt   DateTime  @map("expires_at")
-  consumedAt  DateTime? @map("consumed_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  id             String               @id @default(uuid()) @db.Uuid
+  stateHash      String               @unique @map("state_hash") @db.Char(64)
+  userId         String               @map("user_id") @db.Uuid
+  workspaceId    String               @map("workspace_id") @db.Uuid
+  launchIntentId String?              @map("launch_intent_id") @db.Uuid
+  shopDomain     String               @map("shop_domain") @db.VarChar(255)
+  expiresAt      DateTime             @map("expires_at")
+  consumedAt     DateTime?            @map("consumed_at")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace      Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  launchIntent   ShopifyLaunchIntent? @relation(fields: [launchIntentId], references: [id], onDelete: SetNull)
 
   @@index([userId, workspaceId])
+  @@index([launchIntentId])
   @@index([expiresAt])
   @@map("shopify_oauth_states")
+}
+
+model ShopifyLaunchIntent {
+  id                   String                    @id @default(uuid()) @db.Uuid
+  nonceHash            String                    @unique @map("nonce_hash") @db.Char(64)
+  shopDomain           String                    @map("shop_domain") @db.VarChar(255)
+  origin               ShopifyLaunchOrigin
+  status               ShopifyLaunchIntentStatus @default(PENDING)
+  requestedWorkspaceId String?                   @map("requested_workspace_id") @db.Uuid
+  selectedByUserId     String?                   @map("selected_by_user_id") @db.Uuid
+  safeReturnPath       String?                   @map("safe_return_path") @db.VarChar(2048)
+  expiresAt            DateTime                  @map("expires_at")
+  consumedAt           DateTime?                 @map("consumed_at")
+  createdAt            DateTime                  @default(now()) @map("created_at")
+  updatedAt            DateTime                  @updatedAt @map("updated_at")
+  requestedWorkspace   Workspace?                @relation(fields: [requestedWorkspaceId], references: [id], onDelete: SetNull)
+  selectedByUser       User?                     @relation(fields: [selectedByUserId], references: [id], onDelete: SetNull)
+  oauthStates          ShopifyOAuthState[]
+
+  @@index([shopDomain, status])
+  @@index([expiresAt, status])
+  @@index([requestedWorkspaceId])
+  @@index([selectedByUserId])
+  @@map("shopify_launch_intents")
 }
 
 model Membership {

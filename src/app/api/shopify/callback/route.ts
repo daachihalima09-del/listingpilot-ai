@@ -23,9 +23,16 @@ import {
   findShopifyOAuthState,
 } from '@/modules/shopify/repositories/oauth-state-repository';
 import {
+  completeShopifyLaunchIntent,
+} from '@/modules/shopify/launch/launch-intent-service';
+import {
+  recordShopifyLaunchAuditSafely,
+} from '@/modules/shopify/launch/launch-audit.server';
+import {
   persistPrismaShopifyConnection,
   recordShopifyOAuthFailure,
 } from '@/modules/shopify/repositories/prisma-connection-repository';
+import { prismaShopifyLaunchIntentStore } from '@/modules/shopify/repositories/prisma-launch-intent-repository';
 import { getTenantContextForUser } from '@/modules/tenancy/server/tenant-context';
 import { ShopifyCallbackError } from '@/modules/shopify/types/errors';
 
@@ -77,13 +84,29 @@ export async function GET(request: Request): Promise<NextResponse> {
       .map((cookie) => cookie.trim())
       .find((cookie) => cookie.startsWith(`${shopifyOAuthStateCookieName()}=`))
       ?.slice(shopifyOAuthStateCookieName().length + 1);
-    await completeShopifyOAuthCallback(dependencies, config, {
+    const result = await completeShopifyOAuthCallback(dependencies, config, {
       requestUrl: request.url,
       cookieState: cookieState ? decodeURIComponent(cookieState) : undefined,
       actorUserId: user.id,
     });
 
-    const response = NextResponse.redirect(shopifyCallbackSuccessUrl(appUrl));
+    const safeReturnPath = result.launchIntentId
+      ? await completeShopifyLaunchIntent(
+          prismaShopifyLaunchIntentStore,
+          result.launchIntentId,
+        )
+      : '/settings/shopify';
+    if (result.launchIntentId) {
+      await recordShopifyLaunchAuditSafely({
+        action: 'shopify.connection_completed_from_launch',
+        intentId: result.launchIntentId,
+        userId: user.id,
+        metadata: { shopDomain: result.shopDomain, scopeSufficient: true },
+      });
+    }
+    const response = NextResponse.redirect(
+      shopifyCallbackSuccessUrl(appUrl, safeReturnPath),
+    );
     clearStateCookie(response);
     return response;
   } catch (error) {

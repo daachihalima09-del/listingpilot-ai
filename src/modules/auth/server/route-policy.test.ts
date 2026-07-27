@@ -12,6 +12,9 @@ test('marketing, authentication, and Auth.js routes remain public', () => {
     '/sign-in',
     '/sign-up',
     '/api/auth/session',
+    '/shopify/launch',
+    '/api/shopify/launch',
+    '/api/shopify/webhooks/app-uninstalled',
   ]) {
     assert.equal(isPublicRoute(route), true, `${route} should be public`);
   }

@@ -70,7 +70,7 @@ export async function completeShopifyOAuthCallback(
     actorUserId: string;
     now?: Date;
   },
-): Promise<{ shopDomain: string }> {
+): Promise<{ shopDomain: string; launchIntentId: string | null }> {
   const now = input.now ?? new Date();
   const query = parseShopifyCallbackQuery(input.requestUrl, now);
   const state = await dependencies.findState(
@@ -122,7 +122,10 @@ export async function completeShopifyOAuthCallback(
       grantedScopes: token.grantedScopes,
       verifiedAt: now,
     });
-    return { shopDomain: shop.shopDomain };
+    return {
+      shopDomain: shop.shopDomain,
+      launchIntentId: state.launchIntentId ?? null,
+    };
   } catch (error) {
     const category = error instanceof ShopifyCallbackError
       ? error.safeCategory

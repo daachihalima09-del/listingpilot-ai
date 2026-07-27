@@ -21,6 +21,9 @@ export function isAuthenticationPage(pathname: string): boolean {
 
 export function isPublicRoute(pathname: string): boolean {
   return publicPageRoutes.has(pathname)
+    || pathname === '/shopify/launch'
+    || pathname === '/api/shopify/launch'
+    || pathname === '/api/shopify/webhooks/app-uninstalled'
     || pathname === '/api/auth'
     || pathname.startsWith('/api/auth/');
 }

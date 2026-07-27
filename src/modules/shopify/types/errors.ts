@@ -53,6 +53,12 @@ export class ShopifyForbiddenError extends ShopifyError {
 export type ShopifyCallbackErrorReason =
   | 'invalid_callback'
   | 'invalid_state'
+  | 'expired_state'
+  | 'consumed_state'
+  | 'missing_cookie'
+  | 'shop_mismatch'
+  | 'user_mismatch'
+  | 'workspace_mismatch'
   | 'shopify_unavailable'
   | 'connection_failed';
 

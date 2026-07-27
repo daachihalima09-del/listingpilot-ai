@@ -47,6 +47,30 @@ const errorMessages: Record<string, {
     tone: 'error',
     message: 'The Shopify connection request expired or is no longer valid.',
   },
+  expired_state: {
+    tone: 'error',
+    message: 'The Shopify authorization expired. Start again to create a fresh secure request.',
+  },
+  consumed_state: {
+    tone: 'error',
+    message: 'This Shopify authorization was already used. Start a new connection request.',
+  },
+  missing_cookie: {
+    tone: 'error',
+    message: 'The secure Shopify connection session is missing. Start again in this browser.',
+  },
+  shop_mismatch: {
+    tone: 'error',
+    message: 'The returning Shopify store did not match the connection request.',
+  },
+  user_mismatch: {
+    tone: 'error',
+    message: 'Sign in with the ListingPilot account that started this Shopify connection.',
+  },
+  workspace_mismatch: {
+    tone: 'error',
+    message: 'The Shopify response did not match the selected workspace. Start again.',
+  },
   shopify_unavailable: {
     tone: 'error',
     message: 'Shopify could not be reached. Please try again shortly.',

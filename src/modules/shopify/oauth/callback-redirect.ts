@@ -1,7 +1,13 @@
 import type { ShopifyCallbackErrorReason } from '../types/errors.ts';
 
-export function shopifyCallbackSuccessUrl(appUrl: string): URL {
-  const url = new URL('/settings/shopify', appUrl);
+export function shopifyCallbackSuccessUrl(
+  appUrl: string,
+  safeReturnPath = '/settings/shopify',
+): URL {
+  const url = new URL(safeReturnPath, appUrl);
+  if (url.origin !== new URL(appUrl).origin) {
+    return shopifyCallbackSuccessUrl(appUrl);
+  }
   url.searchParams.set('status', 'connected');
   return url;
 }

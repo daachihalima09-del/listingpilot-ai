@@ -28,6 +28,7 @@ export interface ShopifyOAuthStateBinding {
   shopDomain: string;
   expiresAt: Date;
   consumedAt: Date | null;
+  launchIntentId?: string | null;
 }
 
 interface VerifyShopifyOAuthStateInput {
@@ -44,17 +45,29 @@ export function verifyShopifyOAuthStateBinding(
   input: VerifyShopifyOAuthStateInput,
 ): void {
   const now = input.now ?? new Date();
+  if (!input.cookieState) {
+    throw new ShopifyCallbackError('missing_cookie', 'missing_cookie');
+  }
   if (
-    !input.cookieState
-    || !statesMatch(input.queryState, input.cookieState)
+    !statesMatch(input.queryState, input.cookieState)
     || binding.stateHash !== hashShopifyOAuthState(input.queryState)
-    || binding.userId !== input.actorUserId
-    || binding.workspaceId !== input.activeWorkspaceId
-    || binding.shopDomain !== input.shopDomain
-    || binding.expiresAt.getTime() <= now.getTime()
-    || binding.consumedAt !== null
   ) {
-    throw new ShopifyCallbackError('invalid_state', 'invalid_state');
+    throw new ShopifyCallbackError('invalid_state', 'state_mismatch');
+  }
+  if (binding.userId !== input.actorUserId) {
+    throw new ShopifyCallbackError('user_mismatch', 'user_mismatch');
+  }
+  if (binding.workspaceId !== input.activeWorkspaceId) {
+    throw new ShopifyCallbackError('workspace_mismatch', 'workspace_mismatch');
+  }
+  if (binding.shopDomain !== input.shopDomain) {
+    throw new ShopifyCallbackError('shop_mismatch', 'shop_mismatch');
+  }
+  if (binding.expiresAt.getTime() <= now.getTime()) {
+    throw new ShopifyCallbackError('expired_state', 'expired_state');
+  }
+  if (binding.consumedAt !== null) {
+    throw new ShopifyCallbackError('consumed_state', 'consumed_state');
   }
 }
 
