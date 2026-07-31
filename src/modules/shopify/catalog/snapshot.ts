@@ -3,7 +3,7 @@ import { SHOPIFY_METAFIELD_CATALOG_BY_ID } from '../metafields/metafield-catalog
 
 const gid = z.string().min(1).max(255);
 const money = z.string().regex(/^\d+(?:\.\d+)?$/).max(32);
-const snapshotSchema = z.object({
+export const shopifyProductSnapshotSchema = z.object({
   schemaVersion: z.literal('1'),
   apiVersion: z.string().max(20),
   importedAt: z.string().datetime(),
@@ -65,7 +65,7 @@ const snapshotSchema = z.object({
   }),
 }).strict();
 
-export type ShopifyProductSnapshot = z.infer<typeof snapshotSchema>;
+export type ShopifyProductSnapshot = z.infer<typeof shopifyProductSnapshotSchema>;
 
 interface RawMetafield {
   namespace?: unknown;
@@ -160,7 +160,7 @@ export function normalizeShopifyProductSnapshot(
     alt: item.alt ?? null,
     url: isSafeMediaUrl(item.image?.url) ? item.image.url : null,
   }));
-  const snapshot = snapshotSchema.parse({
+  const snapshot = shopifyProductSnapshotSchema.parse({
     schemaVersion: '1',
     apiVersion,
     importedAt: importedAt.toISOString(),

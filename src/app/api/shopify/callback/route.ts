@@ -35,6 +35,7 @@ import {
 import { prismaShopifyLaunchIntentStore } from '@/modules/shopify/repositories/prisma-launch-intent-repository';
 import { getTenantContextForUser } from '@/modules/tenancy/server/tenant-context';
 import { ShopifyCallbackError } from '@/modules/shopify/types/errors';
+import { returnPathAfterShopifyConnection } from '@/modules/onboarding/catalog-profile/onboarding-gate.server';
 
 function clearStateCookie(response: NextResponse): void {
   response.cookies.set(
@@ -90,12 +91,16 @@ export async function GET(request: Request): Promise<NextResponse> {
       actorUserId: user.id,
     });
 
-    const safeReturnPath = result.launchIntentId
+    const completedProfileReturnPath = result.launchIntentId
       ? await completeShopifyLaunchIntent(
           prismaShopifyLaunchIntentStore,
           result.launchIntentId,
         )
       : '/settings/shopify';
+    const safeReturnPath = await returnPathAfterShopifyConnection(
+      result.workspaceId,
+      completedProfileReturnPath,
+    );
     if (result.launchIntentId) {
       await recordShopifyLaunchAuditSafely({
         action: 'shopify.connection_completed_from_launch',

@@ -8,6 +8,8 @@ import {
   projectTenantQuery,
 } from '@/modules/projects/server/project-page-context';
 import { TenantAccessError } from '@/modules/tenancy/server/tenant-context';
+import { merchantBusinessProfileOnboardingPathIfRequired } from '@/modules/onboarding/catalog-profile/onboarding-gate.server';
+import { redirect } from 'next/navigation';
 
 interface NewProjectPageProps {
   searchParams: Promise<{
@@ -25,6 +27,12 @@ export default async function NewProjectPage({
   try {
     const tenant = await getProjectPageTenantContext(user.id, query);
     const tenantQuery = projectTenantQuery(tenant);
+    if (tenant.role === 'OWNER') {
+      const onboardingPath = await merchantBusinessProfileOnboardingPathIfRequired(
+        tenant.workspace.id,
+      );
+      if (onboardingPath) redirect(onboardingPath);
+    }
 
     return (
       <div className="mx-auto max-w-3xl">

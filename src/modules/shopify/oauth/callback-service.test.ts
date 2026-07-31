@@ -98,6 +98,7 @@ test('completes the verified callback in security order', async () => {
     now,
   });
   assert.equal(result.shopDomain, 'example.myshopify.com');
+  assert.equal(result.workspaceId, 'workspace-1');
   assert.deepEqual(context.events, [
     'state-consumed',
     'code-exchanged',

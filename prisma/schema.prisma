@@ -38,6 +38,12 @@ enum ShopifyImportLinkStatus {
   INCONSISTENT
 }
 
+enum ShopifyChangeReviewStatus {
+  OPEN
+  STALE
+  PUBLISHED
+}
+
 enum ShopifyStoreStatus {
   PENDING
   CONNECTED
@@ -57,6 +63,45 @@ enum ShopifyLaunchIntentStatus {
 enum ShopifyLaunchOrigin {
   DISTRIBUTION_INSTALL
   SHOPIFY_LAUNCH
+}
+
+enum MerchantCatalogSetupMode {
+  SHOPIFY_IMPORT
+  MANUAL
+}
+
+enum MerchantCatalogEntryKind {
+  COLLECTION
+  PRODUCT_TYPE
+  VENDOR
+}
+
+enum MerchantBusinessProfileStatus {
+  INCOMPLETE
+  COMPLETE
+  NEEDS_REVIEW
+  INVALID
+}
+
+enum MerchantPreferenceSectionStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETE
+  NEEDS_REVIEW
+  INVALID
+}
+
+enum MerchantPreferenceValidationStatus {
+  NOT_VALIDATED
+  VALID
+  INVALID
+}
+
+enum MerchantPreferenceSource {
+  SHOPIFY_IMPORT
+  MANUAL
+  MERCHANT_EDIT
+  PLATFORM_DEFAULT
 }
 
 enum ShopifyProductPublicationStatus {
@@ -140,6 +185,7 @@ model User {
   shopifyLaunchIntents         ShopifyLaunchIntent[]
   shopifyImageUploadSessions   ShopifyImageUploadSession[]
   shopifyPublicationExecutions ShopifyPublicationExecution[]
+  shopifyChangeReviews         ShopifyChangeReview[]
 
   @@index([status])
   @@map("users")
@@ -159,22 +205,101 @@ model Organization {
 }
 
 model Workspace {
-  id                   String                @id @default(uuid()) @db.Uuid
-  organizationId       String                @map("organization_id") @db.Uuid
-  name                 String                @db.VarChar(200)
-  slug                 String                @db.VarChar(100)
-  createdAt            DateTime              @default(now()) @map("created_at")
-  updatedAt            DateTime              @updatedAt @map("updated_at")
-  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  auditLogs            AuditLog[]
-  projects             Project[]
-  shopifyStores        ShopifyStore[]
-  shopifyOAuthStates   ShopifyOAuthState[]
-  shopifyLaunchIntents ShopifyLaunchIntent[]
+  id                      String                   @id @default(uuid()) @db.Uuid
+  organizationId          String                   @map("organization_id") @db.Uuid
+  name                    String                   @db.VarChar(200)
+  slug                    String                   @db.VarChar(100)
+  createdAt               DateTime                 @default(now()) @map("created_at")
+  updatedAt               DateTime                 @updatedAt @map("updated_at")
+  organization            Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  auditLogs               AuditLog[]
+  projects                Project[]
+  shopifyStores           ShopifyStore[]
+  shopifyOAuthStates      ShopifyOAuthState[]
+  shopifyLaunchIntents    ShopifyLaunchIntent[]
+  merchantCatalogProfile  MerchantCatalogProfile?
+  merchantBusinessProfile MerchantBusinessProfile?
 
   @@unique([organizationId, slug])
   @@index([organizationId])
   @@map("workspaces")
+}
+
+model MerchantBusinessProfile {
+  id                     String                        @id @default(uuid()) @db.Uuid
+  workspaceId            String                        @unique @map("workspace_id") @db.Uuid
+  version                Int                           @default(1)
+  status                 MerchantBusinessProfileStatus @default(INCOMPLETE)
+  lastCompletedSectionId String?                       @map("last_completed_section_id") @db.VarChar(50)
+  fingerprint            String                        @db.Char(64)
+  metadata               Json                          @default("{}") @db.JsonB
+  createdAt              DateTime                      @default(now()) @map("created_at")
+  updatedAt              DateTime                      @updatedAt @map("updated_at")
+  workspace              Workspace                     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sections               MerchantPreferenceSection[]
+
+  @@unique([id, workspaceId])
+  @@index([status])
+  @@index([updatedAt])
+  @@map("merchant_business_profiles")
+}
+
+model MerchantPreferenceSection {
+  id                String                             @id @default(uuid()) @db.Uuid
+  businessProfileId String                             @map("business_profile_id") @db.Uuid
+  workspaceId       String                             @map("workspace_id") @db.Uuid
+  sectionId         String                             @map("section_id") @db.VarChar(50)
+  schemaVersion     Int                                @map("schema_version")
+  version           Int                                @default(1)
+  status            MerchantPreferenceSectionStatus
+  validationStatus  MerchantPreferenceValidationStatus @map("validation_status")
+  source            MerchantPreferenceSource
+  payload           Json                               @db.JsonB
+  fingerprint       String                             @db.Char(64)
+  metadata          Json                               @default("{}") @db.JsonB
+  completedAt       DateTime?                          @map("completed_at")
+  createdAt         DateTime                           @default(now()) @map("created_at")
+  updatedAt         DateTime                           @updatedAt @map("updated_at")
+  businessProfile   MerchantBusinessProfile            @relation(fields: [businessProfileId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+
+  @@unique([workspaceId, sectionId])
+  @@unique([businessProfileId, sectionId])
+  @@index([businessProfileId, status])
+  @@index([workspaceId, status])
+  @@index([sectionId, schemaVersion])
+  @@map("merchant_preference_sections")
+}
+
+model MerchantCatalogProfile {
+  id          String                   @id @default(uuid()) @db.Uuid
+  workspaceId String                   @unique @map("workspace_id") @db.Uuid
+  setupMode   MerchantCatalogSetupMode @map("setup_mode")
+  version     Int                      @default(1)
+  completedAt DateTime                 @default(now()) @map("completed_at")
+  createdAt   DateTime                 @default(now()) @map("created_at")
+  updatedAt   DateTime                 @updatedAt @map("updated_at")
+  workspace   Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  entries     MerchantCatalogEntry[]
+
+  @@index([completedAt])
+  @@map("merchant_catalog_profiles")
+}
+
+model MerchantCatalogEntry {
+  id              String                   @id @default(uuid()) @db.Uuid
+  profileId       String                   @map("profile_id") @db.Uuid
+  kind            MerchantCatalogEntryKind
+  value           String                   @db.VarChar(255)
+  normalizedValue String                   @map("normalized_value") @db.VarChar(255)
+  position        Int
+  createdAt       DateTime                 @default(now()) @map("created_at")
+  updatedAt       DateTime                 @updatedAt @map("updated_at")
+  profile         MerchantCatalogProfile   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, kind, normalizedValue])
+  @@unique([profileId, kind, position])
+  @@index([profileId, kind])
+  @@map("merchant_catalog_entries")
 }
 
 model Project {
@@ -202,6 +327,7 @@ model Project {
   shopifyImageUploadSessions    ShopifyImageUploadSession[]
   shopifyPublicationExecutions  ShopifyPublicationExecution[]
   shopifyProductImportLink      ShopifyProductImportLink?
+  shopifyChangeReviews          ShopifyChangeReview[]
 
   @@unique([id, workspaceId])
   @@index([workspaceId])
@@ -357,6 +483,7 @@ model ShopifyStore {
   metafieldDefinitionLinks ShopifyMetafieldDefinitionLink[]
   publicationExecutions    ShopifyPublicationExecution[]
   productImportLinks       ShopifyProductImportLink[]
+  changeReviews            ShopifyChangeReview[]
 
   @@unique([id, workspaceId])
   @@index([workspaceId])
@@ -405,6 +532,40 @@ model ShopifyProductImportLink {
   @@index([shopifyStoreId, shopifyProductGid])
   @@index([workspaceId, status])
   @@map("shopify_product_import_links")
+}
+
+model ShopifyChangeReview {
+  id                   String                    @id @default(uuid()) @db.Uuid
+  projectId            String                    @map("project_id") @db.Uuid
+  workspaceId          String                    @map("workspace_id") @db.Uuid
+  shopifyStoreId       String                    @map("shopify_store_id") @db.Uuid
+  createdByUserId      String                    @map("created_by_user_id") @db.Uuid
+  shopifyProductGid    String                    @map("shopify_product_gid") @db.VarChar(255)
+  status               ShopifyChangeReviewStatus @default(OPEN)
+  comparisonJson       Json                      @map("comparison_json") @db.JsonB
+  decisionsJson        Json                      @default("{}") @map("decisions_json") @db.JsonB
+  baselineUpdatedAt    DateTime                  @map("baseline_updated_at")
+  remoteUpdatedAt      DateTime                  @map("remote_updated_at")
+  remoteFingerprint    String                    @map("remote_fingerprint") @db.Char(64)
+  projectVersion       Int                       @map("project_version")
+  baselineSnapshotHash String                    @map("baseline_snapshot_hash") @db.Char(64)
+  generatedAt          DateTime                  @default(now()) @map("generated_at")
+  expiresAt            DateTime                  @map("expires_at")
+  publishedAt          DateTime?                 @map("published_at")
+  version              Int                       @default(1)
+  createdAt            DateTime                  @default(now()) @map("created_at")
+  updatedAt            DateTime                  @updatedAt @map("updated_at")
+  project              Project                   @relation(fields: [projectId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  shopifyStore         ShopifyStore              @relation(fields: [shopifyStoreId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  createdByUser        User                      @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([id, workspaceId])
+  @@index([projectId, workspaceId, generatedAt])
+  @@index([workspaceId, status, generatedAt])
+  @@index([shopifyStoreId, shopifyProductGid])
+  @@index([status, expiresAt])
+  @@index([id, version])
+  @@map("shopify_change_reviews")
 }
 
 model ShopifyImageConfiguration {
