@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ShopifyPublishingPlanPayload, PublishingChangeGroup } from '../safe-publishing/publishing-plan';
 import { ShopifyListingPreview } from './ShopifyListingPreview';
@@ -33,6 +33,8 @@ export function SafeShopifyPublishingClient({ projectId, initial }: { projectId:
   const [error, setError] = useState('');
   const [result, setResult] = useState<{ outcome: string; completedOperations: string[]; productGid: string | null } | null>(null);
   const [showConfirmation, setShowConfirmation] = useState(false);
+  const preparingRef = useRef(false);
+  const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
   const saved = initial?.selection && typeof initial.selection === 'object' ? initial.selection as { selectedFieldIds?: unknown; duplicateCandidateReviewed?: unknown } : null;
   const defaults = initial?.plan.changes.filter(({ selected }) => selected).map(({ fieldId }) => fieldId) ?? [];
   const [selected, setSelected] = useState<string[]>(Array.isArray(saved?.selectedFieldIds) ? saved!.selectedFieldIds.filter((id): id is string => typeof id === 'string') : defaults);
@@ -40,6 +42,17 @@ export function SafeShopifyPublishingClient({ projectId, initial }: { projectId:
   const plan = initial?.plan;
   const selectedChanges = useMemo(() => plan?.changes.filter(({ fieldId }) => selected.includes(fieldId)) ?? [], [plan, selected]);
   const highImpact = selectedChanges.filter(({ risk }) => risk === 'HIGH');
+
+  useEffect(() => {
+    if (!initial) return;
+    const savedSelection = initial.selection && typeof initial.selection === 'object' ? initial.selection as { selectedFieldIds?: unknown; duplicateCandidateReviewed?: unknown } : null;
+    const nextSelected = Array.isArray(savedSelection?.selectedFieldIds)
+      ? savedSelection.selectedFieldIds.filter((id): id is string => typeof id === 'string')
+      : initial.plan.changes.filter(({ selected }) => selected).map(({ fieldId }) => fieldId);
+    setSelected(nextSelected);
+    setDuplicateReviewed(savedSelection?.duplicateCandidateReviewed === true);
+    setPendingPlanId((current) => current === initial.id ? null : current);
+  }, [initial]);
 
   async function request(path: string, method: 'POST' | 'PATCH', body: unknown) {
     const response = await fetch(`/api/projects/${projectId}/shopify-publish${path}`, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -49,14 +62,16 @@ export function SafeShopifyPublishingClient({ projectId, initial }: { projectId:
   }
 
   async function prepare(intent: 'REVIEW' | 'CREATE_NEW') {
-    if (busy) return;
+    if (busy || preparingRef.current) return;
+    preparingRef.current = true;
     setBusy('prepare'); setError('');
     try {
       const response = await request('/prepare', 'POST', { intent });
-      router.push(`/workspace/${projectId}/shopify-publish?planId=${encodeURIComponent(response.id!)}`);
-      router.refresh();
+      const nextPlanId = response.id!;
+      setPendingPlanId(nextPlanId);
+      router.replace(`/workspace/${projectId}/shopify-publish?planId=${encodeURIComponent(nextPlanId)}`);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'The plan could not be prepared.'); }
-    finally { setBusy(null); }
+    finally { preparingRef.current = false; setBusy(null); }
   }
 
   function payload(confirm = false) {
@@ -68,7 +83,7 @@ export function SafeShopifyPublishingClient({ projectId, initial }: { projectId:
   }
 
   async function save() {
-    if (!initial || busy) return;
+    if (!initial || busy || pendingPlanId) return;
     setBusy('save'); setError('');
     try { await request('', 'PATCH', payload()); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Your review could not be saved.'); }
@@ -76,7 +91,7 @@ export function SafeShopifyPublishingClient({ projectId, initial }: { projectId:
   }
 
   async function publish() {
-    if (!initial || busy) return;
+    if (!initial || busy || pendingPlanId) return;
     setBusy('publish'); setError('');
     try {
       const response = await request('/execute', 'POST', payload(true));
@@ -125,8 +140,8 @@ export function SafeShopifyPublishingClient({ projectId, initial }: { projectId:
       {error ? <p role="alert" className="rounded-xl border border-rose-300/20 bg-rose-300/[0.06] p-4 text-sm text-rose-100">{error}</p> : null}
       <div className="flex flex-wrap gap-3 border-t border-white/10 pt-5">
         <button type="button" onClick={() => void prepare(plan!.mode === 'CREATE_NEW' ? 'CREATE_NEW' : 'REVIEW')} disabled={Boolean(busy)} className="rounded-xl border border-white/15 px-4 py-2.5 font-semibold">{busy === 'prepare' ? 'Refreshing…' : 'Refresh Comparison'}</button>
-        <button type="button" onClick={() => void save()} disabled={Boolean(busy) || initial.stale || plan!.blockers.length > 0} className="rounded-xl border border-white/15 px-4 py-2.5 font-semibold">{busy === 'save' ? 'Saving…' : 'Save Review'}</button>
-        <button type="button" onClick={() => setShowConfirmation(true)} disabled={Boolean(busy) || selected.length === 0 || initial.stale || plan!.blockers.length > 0 || (plan!.duplicateAssessment.result === 'POSSIBLE_MATCH' && !duplicateReviewed) || result !== null} className="rounded-xl bg-emerald-300 px-5 py-2.5 font-semibold text-slate-950 disabled:opacity-40">{plan!.mode === 'CREATE_NEW' ? 'Create as Draft' : 'Publish Selected Changes'}</button>
+        <button type="button" onClick={() => void save()} disabled={Boolean(busy) || Boolean(pendingPlanId) || initial.stale || plan!.blockers.length > 0} className="rounded-xl border border-white/15 px-4 py-2.5 font-semibold">{busy === 'save' ? 'Saving…' : 'Save Review'}</button>
+        <button type="button" onClick={() => setShowConfirmation(true)} disabled={Boolean(busy) || Boolean(pendingPlanId) || selected.length === 0 || initial.stale || plan!.blockers.length > 0 || (plan!.duplicateAssessment.result === 'POSSIBLE_MATCH' && !duplicateReviewed) || result !== null} className="rounded-xl bg-emerald-300 px-5 py-2.5 font-semibold text-slate-950 disabled:opacity-40">{plan!.mode === 'CREATE_NEW' ? 'Create as Draft' : 'Publish Selected Changes'}</button>
         <Link href={`/workspace/${projectId}`} className="rounded-xl px-4 py-2.5 text-slate-400">Cancel</Link>
       </div>
 

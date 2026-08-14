@@ -89,4 +89,8 @@ test('safe publishing source has no inventory or collection mutations and no cre
   assert.match(client, /Create New Product/u);
   assert.match(client, /Link Existing Product/u);
   assert.match(client, /it does not change Shopify/u);
+  assert.match(client, /router\.replace/u);
+  assert.doesNotMatch(client, /router\.push[\s\S]{0,200}router\.refresh/u);
+  assert.match(client, /pendingPlanId/u);
+  assert.match(client, /preparingRef/u);
 });
