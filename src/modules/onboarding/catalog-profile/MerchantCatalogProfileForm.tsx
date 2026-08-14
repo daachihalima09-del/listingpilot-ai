@@ -17,6 +17,10 @@ import {
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
+import {
+  merchantProfileSaveDestination,
+  type MerchantProfileSurface,
+} from '@/modules/settings/business-profile/routes';
 import type {
   MerchantCatalogProfileDto,
   MerchantCatalogProfileValues,
@@ -37,6 +41,7 @@ interface MerchantCatalogProfileFormProps {
   shopifyConnected: boolean;
   canManage: boolean;
   initialProfile: MerchantCatalogProfileDto | null;
+  surface?: MerchantProfileSurface;
 }
 
 type SectionKey = keyof MerchantCatalogProfileValues;
@@ -289,6 +294,7 @@ export function MerchantCatalogProfileForm({
   shopifyConnected,
   canManage,
   initialProfile,
+  surface = 'onboarding',
 }: MerchantCatalogProfileFormProps) {
   const router = useRouter();
   const initialValues = initialProfile
@@ -420,10 +426,16 @@ export function MerchantCatalogProfileForm({
         type: 'success',
         message: 'Merchant Catalog Profile saved.',
       });
-      router.push(`/projects/new?${new URLSearchParams({
-        organizationId,
-        workspaceId,
-      })}`);
+      if (surface === 'settings') {
+        router.refresh();
+      } else {
+        router.push(merchantProfileSaveDestination({
+          section: 'catalog',
+          surface,
+          organizationId,
+          workspaceId,
+        }));
+      }
     } catch (error) {
       setNotice({
         type: 'error',
@@ -596,7 +608,11 @@ export function MerchantCatalogProfileForm({
               {saving
                 ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
                 : <Save className="h-4 w-4" aria-hidden="true" />}
-              {saving ? 'Saving…' : 'Save and continue'}
+              {saving
+                ? 'Saving…'
+                : surface === 'settings'
+                  ? 'Save Catalog Profile'
+                  : 'Save and continue'}
             </button>
           </div>
         </section>

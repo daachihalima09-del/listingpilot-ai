@@ -71,8 +71,7 @@ export class MerchantPreferenceRegistry {
     return Object.freeze(
       [...this.#definitions.values()]
         .filter(({ active }) => active)
-        .map(({ sectionId }) => sectionId)
-        .sort(),
+        .map(({ sectionId }) => sectionId),
     );
   }
 }

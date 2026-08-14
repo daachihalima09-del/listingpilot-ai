@@ -13,7 +13,12 @@ export function RecentAnalyses({ product }: RecentAnalysesProps) {
           <div key={item.title} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-3">
             <div className="flex items-center gap-3">
               <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-amber-400/20 bg-amber-400/10 text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">
-                {item.title.includes('Q80D') ? 'TV' : item.title.includes('Dyson') ? 'VAC' : 'AUD'}
+                {item.title
+                  .split(/\s+/)
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((part) => part[0]?.toLocaleUpperCase('en-US'))
+                  .join('') || 'PR'}
               </div>
               <div>
                 <div className="text-sm font-semibold text-slate-100">{item.title}</div>

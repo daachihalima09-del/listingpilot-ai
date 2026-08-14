@@ -1,12 +1,13 @@
 import { CircleCheckBig, CircleAlert, Sparkles } from 'lucide-react';
 import type { DemoProduct } from '@/types/product';
+import { applicableReadinessRows } from './category-readiness';
 
 interface CatalogHealthProps {
   product: DemoProduct;
 }
 
 export function CatalogHealth({ product }: CatalogHealthProps) {
-  const unresolvedFields = product.truthRows
+  const unresolvedFields = applicableReadinessRows(product.truthRows)
     .filter((row) => row.status !== 'Verified')
     .map((row) => `${row.field} (${row.status.toLowerCase()})`);
 
@@ -15,7 +16,7 @@ export function CatalogHealth({ product }: CatalogHealthProps) {
       <div className="flex items-center justify-between">
         <div>
           <div className="text-sm font-semibold text-slate-100">Catalog Health</div>
-          <div className="text-sm text-slate-400">Readiness for Shopify publication</div>
+          <div className="text-sm text-slate-400">Current Product Truth confidence and content coverage</div>
         </div>
         <div className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-sm font-semibold text-emerald-300">
           {product.catalogHealth.score}% {product.catalogHealth.label}
@@ -40,7 +41,7 @@ export function CatalogHealth({ product }: CatalogHealthProps) {
           <span>
             {unresolvedFields.length
               ? `Readiness is reduced by: ${unresolvedFields.join(', ')}`
-              : product.catalogHealth.score >= 75 ? 'Ready to publish with reviewed facts' : 'Review missing fields before publishing'}
+              : product.catalogHealth.score >= 75 ? 'Current verified facts have strong confidence' : 'Review missing fields before generating a listing'}
           </span>
         </div>
         <button className="rounded-full border border-white/10 px-3 py-2 text-sm text-slate-300 transition hover:bg-white/10">View Full Report</button>

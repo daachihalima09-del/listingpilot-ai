@@ -3,10 +3,11 @@
 import { Download, FolderKanban, Save, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { AIDetective } from '@/components/workspace/AIDetective';
 import { ActivityTimeline } from '@/components/workspace/ActivityTimeline';
 import { CatalogHealth } from '@/components/workspace/CatalogHealth';
+import { applicableReadinessRows } from '@/components/workspace/category-readiness';
 import { GeneratedListing } from '@/components/workspace/GeneratedListing';
 import { ProductInput, type InputMode } from '@/components/workspace/ProductInput';
 import { ProductPipeline } from '@/components/workspace/ProductPipeline';
@@ -14,17 +15,36 @@ import { ProductTruthTable } from '@/components/workspace/ProductTruthTable';
 import { RecentAnalyses } from '@/components/workspace/RecentAnalyses';
 import { Sidebar } from '@/components/workspace/Sidebar';
 import { SourceEvidence } from '@/components/workspace/SourceEvidence';
+import { shouldShowProjectEntry } from '@/components/workspace/project-entry-state';
 import { SignOutButton } from '@/components/auth/SignOutButton';
-import { demoProduct } from '@/data/demo-product';
+import {
+  buildDemoListingContent,
+  demoProduct,
+  demoProductSpecifications,
+} from '@/data/demo-product';
 import type { ProductAnalysis } from '@/lib/analysis-schema';
+import type {
+  CanonicalGenerationEligibility,
+  GenerationEligibilityFinding,
+} from '@/modules/listing-generation';
 import { isPdfFileName, isValidHttpUrl, normalizePastedHttpUrl, type DemoAnalysisContext, type DemoAnalysisInput } from '@/lib/demo-analysis-adapter';
 import { buildShopifyCsv } from '@/lib/shopify-csv';
+import type { DraftRegenerationSection } from '@/modules/listing-draft';
+import type { ListingDraftInput } from '@/modules/listing-draft';
+import {
+  listingDraftProjectFields,
+  readAuthoritativeListingDraft,
+} from '@/modules/listing-draft/persistence/authoritative-draft-state';
+import { ListingDraftReview } from '@/modules/listing-draft/review/ListingDraftReview';
 import {
   useProjectAutosave,
   type ProjectSaveSnapshot,
   type SavedProjectWorkspace,
 } from '@/modules/projects/client/use-project-autosave';
+import { ProjectApiError, projectApiRequest } from '@/modules/projects/client/project-api';
 import { ShopifyPublishingPanel } from '@/modules/shopify/components/ShopifyPublishingPanel';
+import { ShopifyListingPreview } from '@/modules/shopify/components/ShopifyListingPreview';
+import { assembleShopifyListing } from '@/modules/shopify/content/shopify-description';
 import { ShopifyVariantsPanel } from '@/modules/shopify/components/ShopifyVariantsPanel';
 import { ShopifyMetafieldsPanel } from '@/modules/shopify/components/ShopifyMetafieldsPanel';
 import { ShopifyImagesPanel } from '@/modules/shopify/components/ShopifyImagesPanel';
@@ -49,51 +69,52 @@ import type {
 import type { DemoProduct, PipelineStage, TruthRow } from '@/types/product';
 
 const stageOrder: PipelineStage[] = ['input', 'extract', 'verify', 'generate', 'review', 'export'];
-const demoSpecs = [
-  'Samsung Q80D 4K QLED TV',
-  'Brand: Samsung',
-  'Model: Q80D',
-  'Panel: QLED',
-  'HDR: HDR10+',
-  'Refresh Rate: 120Hz',
-  'Resolution: 4K UHD',
-  'Smart Platform: Tizen OS',
-  'Warranty: Missing',
-  'Key claims: Premium 4K QLED display with verified features and a refined product narrative.',
-].join('\n');
+const workspaceTabs = [
+  { id: 'OVERVIEW', label: 'Overview' },
+  { id: 'LISTING', label: 'Listing' },
+  { id: 'REVIEW', label: 'Review' },
+  { id: 'SHOPIFY', label: 'Shopify' },
+  { id: 'ADVANCED', label: 'Advanced' },
+] as const;
+type WorkspaceTab = typeof workspaceTabs[number]['id'];
+const emptyProduct: DemoProduct = {
+  brand: '',
+  model: '',
+  panel: '',
+  hdr: '',
+  refreshRate: '',
+  resolution: '',
+  smartPlatform: '',
+  warranty: '',
+  truthRows: [],
+  sources: [],
+  conflict: {
+    label: '',
+    official: '',
+    amazon: '',
+    lg: '',
+    recommendation: '',
+    recommendedValue: '',
+    explanation: '',
+  },
+  catalogHealth: { score: 0, label: 'Not analyzed', items: [] },
+  analyses: [],
+};
+
+const emptyListingContent = {
+  title: '',
+  description: '',
+  keyFeatures: '',
+  seoTitle: '',
+  seoDescription: '',
+  tags: '',
+};
+
+type EligibilityRefreshStatus = 'idle' | 'loading' | 'success' | 'error';
+const ELIGIBILITY_TIMEOUT_MS = 8_000;
+const GENERATION_TIMEOUT_MS = 90_000;
 
 class AnalysisRequestError extends Error {}
-
-function buildListingContent(product: DemoProduct = demoProduct) {
-  return {
-    title: `${product.brand} ${product.model} 4K QLED TV`,
-    description: `The ${product.brand} ${product.model} combines a premium QLED panel, ${product.hdr} support, and ${product.refreshRate} motion clarity for a polished home entertainment experience.`,
-    keyFeatures: [
-      'Premium QLED panel with bright, accurate color',
-      'HDR10+ and 4K UHD resolution for cinematic picture quality',
-      'Tizen OS smart platform with simple streaming access',
-      'Verified premium feature set for Shopify-ready listings',
-    ].join('\n'),
-    seoTitle: `${product.brand} ${product.model} 4K QLED TV`,
-    seoDescription: `${product.brand} ${product.model} offers premium QLED imaging, ${product.hdr} support, and ${product.refreshRate} motion clarity for modern entertainment.`,
-    tags: 'samsung,q80d,qled,4k-tv,shopify-ready',
-  };
-}
-
-function buildUploadedPdfDemoProduct(filename: string): DemoProduct {
-  return {
-    ...demoProduct,
-    sources: [
-      {
-        name: filename,
-        type: 'Uploaded PDF · Demo Mode',
-        confidence: 100,
-        status: 'Review',
-      },
-      ...demoProduct.sources,
-    ],
-  };
-}
 
 interface AnalysisSourceOptions {
   name: string;
@@ -104,8 +125,6 @@ interface AnalysisSourceOptions {
 function buildAnalyzedProduct(analysis: ProductAnalysis, source: AnalysisSourceOptions): DemoProduct {
   const score = analysis.overallConfidence;
   const label = score >= 90 ? 'Excellent' : score >= 75 ? 'Good' : 'Needs review';
-  const missingFields = new Set(analysis.missingFields.map((field) => field.toLowerCase()));
-  const fieldStatus = (field: string) => missingFields.has(field.toLowerCase()) ? 'warning' as const : 'good' as const;
   const conflict = analysis.conflict;
 
   return {
@@ -132,13 +151,11 @@ function buildAnalyzedProduct(analysis: ProductAnalysis, source: AnalysisSourceO
       score,
       label,
       items: [
-        { name: 'Specifications', status: analysis.missingFields.length ? 'warning' : 'good' },
+        { name: 'Product facts', status: analysis.missingFields.length || conflict ? 'warning' : 'good' },
         { name: 'Description', status: analysis.listing.description ? 'good' : 'warning' },
         { name: 'SEO', status: analysis.listing.seoTitle && analysis.listing.seoDescription ? 'good' : 'warning' },
         { name: 'Images', status: 'warning' },
         { name: 'Variants', status: 'warning' },
-        { name: 'Filters', status: 'good' },
-        { name: 'Warranty warning', status: fieldStatus('Warranty') },
       ],
     },
     analyses: [
@@ -147,14 +164,102 @@ function buildAnalyzedProduct(analysis: ProductAnalysis, source: AnalysisSourceO
         status: analysis.missingFields.length ? 'Review' : 'Completed',
         score,
       },
-      ...demoProduct.analyses.slice(0, 2),
     ],
   };
+}
+
+function GenerationFindingList({
+  findings,
+  onReviewProductTruth,
+}: {
+  findings: readonly GenerationEligibilityFinding[];
+  onReviewProductTruth: () => void;
+}) {
+  return (
+    <ul className="mt-3 space-y-3">
+      {findings.map((finding) => (
+        <li key={finding.id} className="rounded-xl border border-white/10 bg-black/10 p-3">
+          <p className="text-sm font-semibold text-white">{finding.title}</p>
+          <p className="mt-1 text-sm leading-6 text-slate-300">{finding.explanation}</p>
+          {finding.resolutionArea === 'PRODUCT_TRUTH' ? (
+            <button type="button" onClick={onReviewProductTruth} className="mt-2 text-xs font-semibold text-amber-200 hover:text-amber-100">
+              Review Product Truth →
+            </button>
+          ) : finding.resolutionArea === 'MERCHANT_PROFILE' ? (
+            <Link href="/settings/business-profile" className="mt-2 inline-block text-xs font-semibold text-amber-200 hover:text-amber-100">
+              Review merchant settings →
+            </Link>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function GenerationEligibilityPanel({
+  eligibility,
+  current,
+  refreshStatus,
+  onRetry,
+  onReviewProductTruth,
+}: {
+  eligibility: CanonicalGenerationEligibility | null;
+  current: boolean;
+  refreshStatus: EligibilityRefreshStatus;
+  onRetry: () => void;
+  onReviewProductTruth: () => void;
+}) {
+  if (!current) {
+    if (refreshStatus === 'error') {
+      return (
+        <div role="alert" className="rounded-2xl border border-rose-400/25 bg-rose-400/[0.08] p-4">
+          <p className="font-semibold text-rose-100">Could not refresh listing readiness.</p>
+          <button type="button" onClick={onRetry} className="mt-3 rounded-lg border border-rose-200/20 px-3 py-2 text-xs font-semibold text-rose-100 hover:bg-rose-200/10">
+            Try again
+          </button>
+        </div>
+      );
+    }
+    return <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">Checking generation safety against the latest saved analysis…</div>;
+  }
+  if (!eligibility) return null;
+  if (!eligibility.canGenerate) {
+    return (
+      <div role="alert" className="rounded-2xl border border-rose-400/25 bg-rose-400/[0.08] p-4">
+        <p className="font-semibold text-rose-100">Listing needs attention</p>
+        <p className="mt-1 text-sm text-rose-200">{eligibility.blockingFindings.length} {eligibility.blockingFindings.length === 1 ? 'issue must' : 'issues must'} be resolved before a listing can be generated.</p>
+        <details className="mt-3">
+          <summary className="cursor-pointer text-sm font-semibold text-rose-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">Review issues</summary>
+          <GenerationFindingList findings={eligibility.blockingFindings} onReviewProductTruth={onReviewProductTruth} />
+        </details>
+      </div>
+    );
+  }
+  if (!eligibility.warnings.length) {
+    return <div className="rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.06] p-4"><p className="font-semibold text-emerald-100">Ready to generate</p><p className="mt-1 text-sm text-slate-300">Product analysis is complete.</p></div>;
+  }
+  return (
+    <div className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.06] p-4">
+      <p className="font-semibold text-amber-100">Ready to generate</p>
+      <p className="mt-1 text-sm text-slate-300">{eligibility.warnings.length} optional {eligibility.warnings.length === 1 ? 'item needs' : 'items need'} review. Unsupported or unavailable details will be omitted safely.</p>
+      <details className="mt-3">
+        <summary className="cursor-pointer text-sm font-semibold text-amber-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300">View details</summary>
+        <GenerationFindingList findings={eligibility.warnings} onReviewProductTruth={onReviewProductTruth} />
+      </details>
+    </div>
+  );
 }
 
 interface ListingWorkspaceProps {
   initialProject?: SavedProjectWorkspace;
   canManage?: boolean;
+  listingStyle?: {
+    standardId: string;
+    standardName: string;
+    fingerprint: string;
+  };
+  generationEligibility?: CanonicalGenerationEligibility | null;
+  generationEligibilityVersion?: number;
   shopifyPublishing?: ShopifyPublishingContext;
   shopifyCoordinator?: {
     configured: boolean;
@@ -203,6 +308,9 @@ function projectSourceToInputMode(
 export function ListingWorkspace({
   initialProject,
   canManage = true,
+  listingStyle,
+  generationEligibility: initialGenerationEligibility = null,
+  generationEligibilityVersion: initialGenerationEligibilityVersion,
   shopifyPublishing,
   shopifyCoordinator,
   shopifyVariants,
@@ -211,25 +319,50 @@ export function ListingWorkspace({
 }: ListingWorkspaceProps) {
   const router = useRouter();
   const analysisRequestRef = useRef<AbortController | null>(null);
+  const generationRequestRef = useRef(false);
+  const eligibilityRequestRef = useRef<{ key: string; controller: AbortController } | null>(null);
   const restoredAnalysis = initialProject?.analysisData;
   const restoredReadiness = initialProject?.readinessData;
-  const restoredProduct = restoredAnalysis?.activeProduct ?? demoProduct;
-  const restoredListing = initialProject?.generatedListing && initialProject.seoData
+  const restoredDraft = readAuthoritativeListingDraft(initialProject?.generatedListing);
+  const restoredProduct = restoredAnalysis?.activeProduct
+    ?? (initialProject ? emptyProduct : demoProduct);
+  const restoredListing = restoredDraft
     ? {
-        ...initialProject.generatedListing,
-        ...initialProject.seoData,
+        title: restoredDraft.title.value,
+        description: restoredDraft.overview.value,
+        keyFeatures: restoredDraft.features.map(({ value }) => value).join('\n'),
+        seoTitle: restoredDraft.seo.title.value,
+        seoDescription: restoredDraft.seo.description.value,
+        tags: restoredDraft.catalog.tags.map(({ value }) => value).join(', '),
       }
-    : buildListingContent(restoredProduct);
+    : !initialProject
+      ? buildDemoListingContent(restoredProduct)
+      : emptyListingContent;
   const isReadOnly = Boolean(
     initialProject
     && (!canManage || initialProject.status === 'ARCHIVED'),
   );
   const [inputMode, setInputMode] = useState<InputMode>(
-    projectSourceToInputMode(initialProject?.sourceType ?? null),
+    initialProject?.sourceType
+      ? projectSourceToInputMode(initialProject.sourceType)
+      : initialProject ? 'product' : 'specs',
   );
   const [shopifyPanelGeneration, setShopifyPanelGeneration] = useState(0);
+  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('OVERVIEW');
+  const [generationEligibility, setGenerationEligibility] = useState(initialGenerationEligibility);
+  const [generationEligibilityVersion, setGenerationEligibilityVersion] = useState(
+    initialGenerationEligibilityVersion ?? initialProject?.version ?? null,
+  );
+  const [eligibilityRefreshStatus, setEligibilityRefreshStatus] = useState<EligibilityRefreshStatus>(
+    initialGenerationEligibility ? 'success' : 'idle',
+  );
+  const [eligibilityRetryToken, setEligibilityRetryToken] = useState(0);
   const [analysisStarted, setAnalysisStarted] = useState(
-    restoredReadiness?.analysisStarted ?? false,
+    Boolean(
+      restoredAnalysis
+      || initialProject?.sourceType === 'SHOPIFY_IMPORT'
+      || restoredReadiness?.analysisStarted,
+    ),
   );
   const [activeStage, setActiveStage] = useState<PipelineStage>(
     restoredReadiness?.activeStage ?? 'input',
@@ -264,16 +397,13 @@ export function ListingWorkspace({
     truthRows.find((row) => row.status === 'Conflict')?.confidence
       ?? restoredProduct.catalogHealth.score,
   );
-  const [shopifyReady, setShopifyReady] = useState(
-    restoredReadiness?.shopifyReady ?? false,
-  );
   const [reducedMotion, setReducedMotion] = useState(false);
   const [specText, setSpecText] = useState(
     initialProject
       ? initialProject.sourceType === 'RAW_SPECIFICATIONS'
         ? initialProject.rawInput ?? ''
         : ''
-      : demoSpecs,
+      : demoProductSpecifications,
   );
   const [useDemoFallback, setUseDemoFallback] = useState(false);
   const [supplierUrl, setSupplierUrl] = useState(
@@ -293,6 +423,16 @@ export function ListingWorkspace({
   );
   const [activeProduct, setActiveProduct] = useState<DemoProduct>(restoredProduct);
   const [listingContent, setListingContent] = useState(restoredListing);
+  const [listingDraft, setListingDraft] = useState<ListingDraftInput | null>(restoredDraft);
+  const shopifyListingPreview = useMemo(
+    () => listingDraft ? assembleShopifyListing(listingDraft) : null,
+    [listingDraft],
+  );
+  const [isAddingGoldFixture, setIsAddingGoldFixture] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [regeneratingSection, setRegeneratingSection] = useState<DraftRegenerationSection | null>(null);
   const [hasPublishedShopifyProduct, setHasPublishedShopifyProduct] = useState(
     shopifyVariants?.hasPublishedProduct ?? false,
   );
@@ -312,7 +452,23 @@ export function ListingWorkspace({
 
   useEffect(() => () => {
     analysisRequestRef.current?.abort();
+    eligibilityRequestRef.current?.controller.abort();
   }, []);
+
+  useEffect(() => {
+    const persistedDraft = readAuthoritativeListingDraft(initialProject?.generatedListing);
+    setListingDraft(persistedDraft);
+    if (persistedDraft) {
+      setListingContent({
+        title: persistedDraft.title.value,
+        description: persistedDraft.overview.value,
+        keyFeatures: persistedDraft.features.map(({ value }) => value).join('\n'),
+        seoTitle: persistedDraft.seo.title.value,
+        seoDescription: persistedDraft.seo.description.value,
+        tags: persistedDraft.catalog.tags.map(({ value }) => value).join(', '),
+      });
+    }
+  }, [initialProject?.generatedListing, initialProject?.version]);
 
   useEffect(() => {
     if (!analysisStarted || !isRunning) {
@@ -346,7 +502,6 @@ export function ListingWorkspace({
           truthRows.find((row) => row.status === 'Conflict')?.confidence ?? activeProduct.catalogHealth.score,
         );
       } else if (nextStage === 'export') {
-        setShopifyReady(true);
         setVisibleRows(truthRows.length);
         setIsRunning(false);
       }
@@ -368,8 +523,8 @@ export function ListingWorkspace({
       return isValidHttpUrl(productUrl);
     }
 
-    return Boolean(selectedPdf);
-  }, [inputMode, productUrl, selectedPdf, specText, supplierUrl]);
+    return false;
+  }, [inputMode, productUrl, specText, supplierUrl]);
 
   const handleModeChange = (mode: typeof inputMode) => {
     if (isReadOnly) {
@@ -455,17 +610,18 @@ export function ListingWorkspace({
     setShowSources(0);
     setShowRecommendation(false);
     setRecommendationConfidence(0);
-    setShopifyReady(false);
   };
 
   const startPipeline = (
     product: DemoProduct,
-    listing: ReturnType<typeof buildListingContent>,
+    listing: ReturnType<typeof buildDemoListingContent>,
     context: DemoAnalysisContext,
   ) => {
     setActiveProduct(product);
     setTruthRows(product.truthRows);
-    setListingContent(listing);
+    setListingContent((current) => initialProject
+      ? listingDraft ? current : emptyListingContent
+      : listing);
     setAnalysisContext(context);
     setAnalysisStarted(true);
     setActiveStage('input');
@@ -483,28 +639,24 @@ export function ListingWorkspace({
       return;
     }
 
+    if (analysisInput.kind === 'uploaded-pdf') {
+      setInputError('PDF analysis is not available yet. Use a product URL, supplier URL, or raw specifications.');
+      return;
+    }
+
     setInputError(null);
     resetAnalysisResults();
 
-    const useLiveAnalysis = analysisInput.kind !== 'uploaded-pdf'
-      && (analysisInput.kind !== 'raw-specifications' || !useDemoFallback);
+    const useLiveAnalysis = analysisInput.kind !== 'raw-specifications' || !useDemoFallback;
 
     if (!useLiveAnalysis) {
-      const demoAnalysisProduct = analysisInput.kind === 'raw-specifications'
-        ? demoProduct
-        : buildUploadedPdfDemoProduct(analysisInput.filename);
       startPipeline(
-        demoAnalysisProduct,
-        buildListingContent(demoAnalysisProduct),
-        analysisInput.kind === 'raw-specifications'
-          ? {
-              sourceLabel: 'Raw specifications',
-              notice: 'Deterministic demo analysis loaded as a fallback',
-            }
-          : {
-              sourceLabel: 'Uploaded PDF',
-              notice: `Demo Mode — live PDF extraction coming soon. Demo analysis generated from uploaded PDF: ${analysisInput.filename}`,
-            },
+        demoProduct,
+        buildDemoListingContent(demoProduct),
+        {
+          sourceLabel: 'Raw specifications',
+          notice: 'Deterministic demo analysis loaded by request',
+        },
       );
       return;
     }
@@ -588,7 +740,7 @@ export function ListingWorkspace({
       return;
     }
     setInputMode('specs');
-    setSpecText(demoSpecs);
+    setSpecText(demoProductSpecifications);
     setUseDemoFallback(true);
     setInputError(null);
   };
@@ -610,9 +762,7 @@ export function ListingWorkspace({
             ...row,
             status: 'Verified',
             value: activeProduct.conflict.recommendedValue,
-            source: activeProduct === demoProduct
-              ? 'Samsung Official Website'
-              : `AI recommendation from ${activeProduct.sources[0]?.name ?? 'analyzed input'}`,
+            source: activeProduct.sources[0]?.name ?? 'Merchant-reviewed analysis',
             confidence: Math.max(row.confidence, recommendationConfidence),
           }
         : row
@@ -633,29 +783,54 @@ export function ListingWorkspace({
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
+  const currentProduct = useMemo(
+    () => ({ ...activeProduct, truthRows }),
+    [activeProduct, truthRows],
+  );
+
   const overview = useMemo(() => {
-    const score = conflictResolved
-      ? Math.min(100, activeProduct.catalogHealth.score + 2)
-      : activeProduct.catalogHealth.score;
+    const readinessRows = applicableReadinessRows(truthRows);
+    const scoredRows = readinessRows.filter((row) => Number.isFinite(row.confidence));
+    const score = scoredRows.length
+      ? Math.round(scoredRows.reduce((total, row) => total + row.confidence, 0) / scoredRows.length)
+      : 0;
     const label = score >= 90 ? 'Excellent' : score >= 75 ? 'Good' : 'Needs review';
+    const hasUnresolvedFacts = readinessRows.some((row) => row.status !== 'Verified');
+    const hasDescription = Boolean(listingDraft?.overview.value.trim() || (!initialProject && listingContent.description.trim()));
+    const hasSeo = Boolean(listingDraft
+      ? listingDraft.seo.title.value.trim() && listingDraft.seo.description.value.trim()
+      : !initialProject && listingContent.seoTitle.trim() && listingContent.seoDescription.trim());
     return {
       score,
       label,
-      items: activeProduct.catalogHealth.items.map((item) => ({
-        ...item,
-        status: item.status === 'warning' && conflictResolved ? 'good' : item.status,
-      })),
+      items: [
+        { name: 'Product facts', status: readinessRows.length > 0 && !hasUnresolvedFacts ? 'good' as const : 'warning' as const },
+        { name: 'Description', status: hasDescription ? 'good' as const : 'warning' as const },
+        { name: 'SEO', status: hasSeo ? 'good' as const : 'warning' as const },
+        { name: 'Images', status: listingDraft?.media.length ? 'good' as const : 'warning' as const },
+        { name: 'Variants', status: 'warning' as const },
+      ],
     };
-  }, [activeProduct, conflictResolved]);
+  }, [initialProject, listingContent, listingDraft, truthRows]);
+  const verifiedFactCount = truthRows.filter((row) => row.status === 'Verified').length;
+  const hasBlockingFact = truthRows.some((row) => row.status === 'Conflict');
+  const exportReady = Boolean(
+    verifiedFactCount
+    && !hasBlockingFact
+    && (listingDraft?.title.value.trim() || (!initialProject && listingContent.title.trim()))
+    && (listingDraft?.overview.value.trim() || (!initialProject && listingContent.description.trim())),
+  );
 
   const projectSnapshot = useMemo<ProjectSaveSnapshot>(() => {
     const sourceType = inputMode === 'url'
-      ? 'SUPPLIER_URL' as const
+      ? supplierUrl.trim() ? 'SUPPLIER_URL' as const : null
       : inputMode === 'product'
-        ? 'PRODUCT_URL' as const
+        ? productUrl.trim() ? 'PRODUCT_URL' as const : null
         : inputMode === 'pdf'
-          ? 'UPLOADED_PDF' as const
-          : 'RAW_SPECIFICATIONS' as const;
+          ? selectedPdf || initialProject?.sourceType === 'UPLOADED_PDF'
+            ? 'UPLOADED_PDF' as const
+            : null
+          : specText.trim() ? 'RAW_SPECIFICATIONS' as const : null;
     const sourceUrl = inputMode === 'url'
       ? supplierUrl.trim() || null
       : inputMode === 'product'
@@ -667,48 +842,42 @@ export function ListingWorkspace({
         ? selectedPdf?.name ?? initialProject?.rawInput ?? null
         : null;
 
+    const persistedDraftFields = listingDraft ? listingDraftProjectFields(listingDraft) : null;
     return {
       sourceType,
       sourceUrl,
       rawInput,
       analysisData: analysisStarted
         ? {
-            activeProduct,
+            activeProduct: currentProduct,
             truthRows,
             analysisContext,
             conflictResolved,
           }
         : null,
-      generatedListing: {
-        title: listingContent.title,
-        description: listingContent.description,
-        keyFeatures: listingContent.keyFeatures,
-      },
-      seoData: {
-        seoTitle: listingContent.seoTitle,
-        seoDescription: listingContent.seoDescription,
-        tags: listingContent.tags,
-      },
+      generatedListing: persistedDraftFields?.generatedListing ?? null,
+      seoData: persistedDraftFields?.seoData ?? null,
       readinessData: {
         analysisStarted,
         activeStage,
         completedStages,
-        shopifyReady,
+        shopifyReady: exportReady,
       },
     };
   }, [
-    activeProduct,
+    currentProduct,
     activeStage,
     analysisContext,
     analysisStarted,
     completedStages,
     conflictResolved,
     initialProject?.rawInput,
+    initialProject?.sourceType,
     inputMode,
-    listingContent,
+    listingDraft,
     productUrl,
-    selectedPdf?.name,
-    shopifyReady,
+    selectedPdf,
+    exportReady,
     specText,
     supplierUrl,
     truthRows,
@@ -718,6 +887,301 @@ export function ListingWorkspace({
     snapshot: projectSnapshot,
     enabled: Boolean(initialProject && canManage && initialProject.status !== 'ARCHIVED'),
   });
+  const projectId = initialProject?.id;
+  const projectWorkspaceId = initialProject?.workspaceId;
+  useEffect(() => {
+    setGenerationEligibility(initialGenerationEligibility);
+    setGenerationEligibilityVersion(initialGenerationEligibilityVersion ?? initialProject?.version ?? null);
+    setEligibilityRefreshStatus(initialGenerationEligibility ? 'success' : 'idle');
+  }, [initialGenerationEligibility, initialGenerationEligibilityVersion, initialProject?.version]);
+  const retryGenerationEligibility = useCallback(() => {
+    eligibilityRequestRef.current?.controller.abort();
+    eligibilityRequestRef.current = null;
+    setEligibilityRefreshStatus('idle');
+    setEligibilityRetryToken((token) => token + 1);
+  }, []);
+  useEffect(() => {
+    if (
+      !projectId
+      || !projectWorkspaceId
+      || !analysisStarted
+      || listingDraft
+      || generationEligibilityVersion === projectSave.currentVersion
+    ) return;
+
+    const requestKey = `${projectId}:${projectSave.currentVersion}:${eligibilityRetryToken}`;
+    if (eligibilityRequestRef.current?.key === requestKey) return;
+    eligibilityRequestRef.current?.controller.abort();
+    const controller = new AbortController();
+    eligibilityRequestRef.current = { key: requestKey, controller };
+    setEligibilityRefreshStatus('loading');
+
+    void projectApiRequest<{
+      eligibility: CanonicalGenerationEligibility;
+      projectVersion: number;
+    }>(`/api/projects/${projectId}/listing-draft?workspaceId=${encodeURIComponent(projectWorkspaceId)}`, {
+      method: 'GET',
+      timeoutMs: ELIGIBILITY_TIMEOUT_MS,
+      timeoutMessage: 'Could not refresh listing readiness.',
+      signal: controller.signal,
+    }).then((response) => {
+      if (eligibilityRequestRef.current?.controller !== controller) return;
+      if (response.projectVersion !== projectSave.currentVersion) {
+        setEligibilityRefreshStatus('error');
+        return;
+      }
+      setGenerationEligibility(response.eligibility);
+      setGenerationEligibilityVersion(response.projectVersion);
+      setEligibilityRefreshStatus('success');
+    }).catch(() => {
+      if (eligibilityRequestRef.current?.controller !== controller) return;
+      setEligibilityRefreshStatus('error');
+    }).finally(() => {
+      if (eligibilityRequestRef.current?.controller === controller) {
+        eligibilityRequestRef.current = null;
+      }
+    });
+  }, [
+    analysisStarted,
+    eligibilityRetryToken,
+    generationEligibilityVersion,
+    projectId,
+    projectWorkspaceId,
+    listingDraft,
+    projectSave.currentVersion,
+  ]);
+  const generationEligibilityCurrent = Boolean(
+    initialProject
+    && generationEligibility
+    && generationEligibilityVersion === projectSave.currentVersion,
+  );
+  const canGenerateListing = Boolean(
+    analysisStarted
+    && generationEligibilityCurrent
+    && generationEligibility?.canGenerate,
+  );
+
+  const handleGenerateDraft = async () => {
+    if (!initialProject || isReadOnly || generationRequestRef.current) return;
+    if (!canGenerateListing) {
+      setWorkspaceTab('LISTING');
+      return;
+    }
+    setWorkspaceTab('LISTING');
+    generationRequestRef.current = true;
+    setDraftError(null);
+    setIsGeneratingDraft(true);
+    try {
+      const authoritativeVersion = await projectSave.saveNow();
+      if (authoritativeVersion === null) {
+        setDraftError('We could not save the latest project changes. Please try again.');
+        return;
+      }
+      const response = await projectApiRequest<{
+        draft: ListingDraftInput;
+        readinessData: NonNullable<ProjectSaveSnapshot['readinessData']>;
+        project: { version: number; updatedAt: string };
+      }>(
+        `/api/projects/${initialProject.id}/listing-draft`,
+        {
+          method: 'POST',
+          body: { workspaceId: initialProject.workspaceId, version: authoritativeVersion },
+          timeoutMs: GENERATION_TIMEOUT_MS,
+          timeoutMessage: "We couldn't generate this listing in time. Please try again.",
+        },
+      );
+      const projectFields = listingDraftProjectFields(response.draft);
+      const nextContent = {
+        title: response.draft.title.value,
+        description: response.draft.overview.value,
+        keyFeatures: response.draft.features.map(({ value }) => value).join('\n'),
+        seoTitle: response.draft.seo.title.value,
+        seoDescription: response.draft.seo.description.value,
+        tags: response.draft.catalog.tags.map(({ value }) => value).join(', '),
+      };
+      const savedSnapshot: ProjectSaveSnapshot = {
+        ...projectSnapshot,
+        ...projectFields,
+        readinessData: response.readinessData,
+      };
+      setListingContent(nextContent);
+      setListingDraft(response.draft);
+      setActiveStage(response.readinessData.activeStage);
+      setCompletedStages(response.readinessData.completedStages);
+      projectSave.adoptExternalSave(response.project.version, savedSnapshot);
+    } catch (error) {
+      if (error instanceof ProjectApiError && error.code === 'DRAFT_GENERATION_BLOCKED') {
+        const details = error.details as { eligibility?: CanonicalGenerationEligibility } | undefined;
+        if (details?.eligibility) {
+          setGenerationEligibility(details.eligibility);
+          setGenerationEligibilityVersion(projectSave.currentVersion);
+        }
+      }
+      const requestReference = error instanceof ProjectApiError && error.requestId
+        ? ` Reference: ${error.requestId}.`
+        : '';
+      setDraftError(error instanceof ProjectApiError
+        ? `${error.message}${requestReference}`
+        : 'The listing draft could not be displayed after generation. Refresh the page and try again.');
+      if (error instanceof ProjectApiError && error.status === 409) router.refresh();
+    } finally {
+      generationRequestRef.current = false;
+      setIsGeneratingDraft(false);
+    }
+  };
+
+  const handleSaveDraft = async () => {
+    if (!initialProject || !listingDraft || isReadOnly) return;
+    setDraftError(null);
+    setIsSavingDraft(true);
+    try {
+      const response = await projectApiRequest<{
+        draft: ListingDraftInput;
+        project: { version: number; updatedAt: string };
+      }>(`/api/projects/${initialProject.id}/listing-draft`, {
+        method: 'PATCH',
+        body: {
+          workspaceId: initialProject.workspaceId,
+          version: projectSave.currentVersion,
+          draft: listingDraft,
+        },
+        timeoutMs: 60_000,
+      });
+      const nextContent = {
+        ...listingContent,
+        title: response.draft.title.value,
+        description: response.draft.overview.value,
+        keyFeatures: response.draft.features.map(({ value }) => value).join('\n'),
+        seoTitle: response.draft.seo.title.value,
+        seoDescription: response.draft.seo.description.value,
+        tags: response.draft.catalog.tags.map(({ value }) => value).join(', '),
+      };
+      const savedSnapshot: ProjectSaveSnapshot = {
+        ...projectSnapshot,
+        generatedListing: {
+          title: nextContent.title,
+          description: nextContent.description,
+          keyFeatures: nextContent.keyFeatures,
+          listingDraft: response.draft,
+        },
+        seoData: {
+          seoTitle: nextContent.seoTitle,
+          seoDescription: nextContent.seoDescription,
+          tags: nextContent.tags,
+        },
+      };
+      setListingContent(nextContent);
+      setListingDraft(response.draft);
+      projectSave.adoptExternalSave(response.project.version, savedSnapshot);
+    } catch (error) {
+      setDraftError(error instanceof ProjectApiError ? error.message : 'The listing draft could not be saved.');
+    } finally {
+      setIsSavingDraft(false);
+    }
+  };
+
+  const handleAddToGoldLibrary = async () => {
+    if (!initialProject || !listingDraft || listingDraft.status !== 'SAVED' || !canManage) return;
+    setDraftError(null);
+    setIsAddingGoldFixture(true);
+    try {
+      const response = await projectApiRequest<{ fixture: { fixtureId: string } }>('/api/listing-calibration/fixtures', {
+        method: 'POST',
+        body: {
+          workspaceId: initialProject.workspaceId,
+          projectId: initialProject.id,
+          name: listingDraft.title.value.trim(),
+          category: listingDraft.catalog.productType.value.trim() || 'Uncategorized',
+        },
+      });
+      router.push(`/settings/business-profile/listing/calibration?fixtureId=${encodeURIComponent(response.fixture.fixtureId)}`);
+    } catch (error) {
+      setDraftError(error instanceof ProjectApiError ? error.message : 'The Gold Fixture could not be created.');
+    } finally {
+      setIsAddingGoldFixture(false);
+    }
+  };
+
+  const handleRegenerateDraft = async (section: DraftRegenerationSection) => {
+    if (!initialProject || !listingDraft || isReadOnly) return;
+    if (projectSave.status !== 'saved') {
+      setDraftError('Wait for autosave to finish before regenerating this section.');
+      return;
+    }
+    setDraftError(null);
+    setRegeneratingSection(section);
+    try {
+      const response = await projectApiRequest<{
+        draft: ListingDraftInput;
+        project: { version: number; updatedAt: string };
+      }>(`/api/projects/${initialProject.id}/listing-draft`, {
+        method: 'PUT',
+        body: {
+          workspaceId: initialProject.workspaceId,
+          version: projectSave.currentVersion,
+          section,
+        },
+        timeoutMs: 90_000,
+      });
+      const nextContent = {
+        ...listingContent,
+        title: response.draft.title.value,
+        description: response.draft.overview.value,
+        keyFeatures: response.draft.features.map(({ value }) => value).join('\n'),
+        seoTitle: response.draft.seo.title.value,
+        seoDescription: response.draft.seo.description.value,
+        tags: response.draft.catalog.tags.map(({ value }) => value).join(', '),
+      };
+      const savedSnapshot: ProjectSaveSnapshot = {
+        ...projectSnapshot,
+        generatedListing: {
+          title: nextContent.title,
+          description: nextContent.description,
+          keyFeatures: nextContent.keyFeatures,
+          listingDraft: response.draft,
+        },
+        seoData: {
+          seoTitle: nextContent.seoTitle,
+          seoDescription: nextContent.seoDescription,
+          tags: nextContent.tags,
+        },
+      };
+      setListingContent(nextContent);
+      setListingDraft(response.draft);
+      projectSave.adoptExternalSave(response.project.version, savedSnapshot);
+    } catch (error) {
+      setDraftError(error instanceof ProjectApiError ? error.message : 'This section could not be regenerated.');
+    } finally {
+      setRegeneratingSection(null);
+    }
+  };
+
+  const listingStyleChanged = Boolean(
+    listingDraft?.metadata.listingProfileFingerprint
+    && listingStyle?.fingerprint
+    && listingDraft.metadata.listingProfileFingerprint !== listingStyle.fingerprint,
+  );
+  const showProjectEntry = shouldShowProjectEntry(initialProject, analysisStarted);
+  const reviewedCount = listingDraft?.reviewWorkspace?.reviewedSections.length ?? 0;
+  const primaryAction = !analysisStarted
+    ? { label: 'Analyze Product', tab: 'ADVANCED' as const }
+    : !listingDraft
+      ? generationEligibilityCurrent && !generationEligibility?.canGenerate
+        ? { label: 'Review blockers', tab: 'LISTING' as const }
+        : { label: 'Generate Listing', tab: 'LISTING' as const }
+      : listingDraft.status !== 'SAVED' || reviewedCount === 0
+        ? { label: 'Review Listing', tab: 'LISTING' as const }
+        : { label: 'Prepare for Shopify', tab: 'SHOPIFY' as const };
+  const selectWorkspaceTab = (tab: WorkspaceTab) => setWorkspaceTab(tab);
+  const onWorkspaceTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, tab: WorkspaceTab) => {
+    const index = workspaceTabs.findIndex(({ id }) => id === tab);
+    const direction = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+    if (!direction) return;
+    event.preventDefault();
+    const next = workspaceTabs[(index + direction + workspaceTabs.length) % workspaceTabs.length]!;
+    setWorkspaceTab(next.id);
+    document.getElementById(`workspace-tab-${next.id.toLocaleLowerCase('en-US')}`)?.focus();
+  };
 
   return (
     <main className="min-h-screen bg-[#07111f] text-slate-50">
@@ -809,7 +1273,74 @@ export function ListingWorkspace({
             </div>
           ) : null}
 
-          <div className="mt-6 grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+          {showProjectEntry ? (
+            <div className="mx-auto mt-6 w-full max-w-3xl min-w-0">
+              <ProductInput
+                entryMode
+                inputMode={inputMode}
+                onModeChange={handleModeChange}
+                onAnalyze={handleAnalyze}
+                analysisStarted={analysisStarted}
+                isRunning={isRunning || isSubmitting}
+                canAnalyze={canAnalyze}
+                specText={specText}
+                onSpecTextChange={(value) => {
+                  setSpecText(value);
+                  setUseDemoFallback(false);
+                  setInputError(null);
+                }}
+                supplierUrl={supplierUrl}
+                productUrl={productUrl}
+                onUrlChange={handleUrlChange}
+                selectedPdf={selectedPdf}
+                onPdfChange={handlePdfChange}
+                onLoadDemoProduct={handleLoadDemoProduct}
+                inputError={inputError}
+                readOnly={isReadOnly}
+              />
+            </div>
+          ) : (
+          <>
+          <nav role="tablist" aria-label="Product workspace" className="mt-6 flex max-w-full gap-1 overflow-x-auto rounded-2xl border border-white/10 bg-white/5 p-1">
+            {workspaceTabs.map(({ id, label }) => (
+              <button key={id} id={`workspace-tab-${id.toLocaleLowerCase('en-US')}`} type="button" role="tab" aria-selected={workspaceTab === id} aria-controls={`workspace-panel-${id.toLocaleLowerCase('en-US')}`} tabIndex={workspaceTab === id ? 0 : -1} onClick={() => selectWorkspaceTab(id)} onKeyDown={(event) => onWorkspaceTabKeyDown(event, id)} className={`shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 ${workspaceTab === id ? 'bg-amber-300 text-slate-950' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
+                {label}
+              </button>
+            ))}
+          </nav>
+
+          {workspaceTab === 'OVERVIEW' ? (
+            <section id="workspace-panel-overview" role="tabpanel" aria-labelledby="workspace-tab-overview" className="mt-6 max-w-4xl min-w-0">
+              <div className="rounded-[1.75rem] border border-white/10 bg-[#081423] p-5 sm:p-7">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Product Overview</p>
+                <h1 className="mt-2 break-words text-2xl font-semibold text-white sm:text-3xl">{activeProduct.brand} {activeProduct.model}</h1>
+                <dl className="mt-6 grid gap-3 sm:grid-cols-3">
+                  {[
+                    ['Analysis', analysisStarted ? 'Complete' : 'Not started'],
+                    ['Listing', listingDraft ? 'Generated' : 'Not generated'],
+                    ['Readiness', listingDraft ? 'Ready for review' : !analysisStarted ? 'Needs analysis' : !generationEligibilityCurrent ? 'Checking' : generationEligibility?.canGenerate ? generationEligibility.warnings.length ? 'Ready with warnings' : 'Ready to generate' : 'Needs attention'],
+                  ].map(([label, value]) => <div key={label} className="rounded-xl border border-white/10 bg-white/5 p-4"><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-1 font-medium text-white">{value}</dd></div>)}
+                </dl>
+                {analysisStarted && !listingDraft ? <div className="mt-5"><GenerationEligibilityPanel eligibility={generationEligibility} current={generationEligibilityCurrent} refreshStatus={eligibilityRefreshStatus} onRetry={retryGenerationEligibility} onReviewProductTruth={() => selectWorkspaceTab('REVIEW')} /></div> : null}
+                <div className="mt-6"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Next step</p><button type="button" onClick={() => { if (primaryAction.label === 'Generate Listing') void handleGenerateDraft(); else if (primaryAction.label === 'Analyze Product' && canAnalyze) void handleAnalyze(); else selectWorkspaceTab(primaryAction.tab); }} disabled={isReadOnly || isGeneratingDraft || isSubmitting} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-200 disabled:opacity-50 sm:w-auto"><Sparkles className="h-4 w-4" aria-hidden="true" />{isGeneratingDraft ? 'Generating…' : primaryAction.label}</button></div>
+              </div>
+            </section>
+          ) : null}
+
+          {workspaceTab === 'LISTING' ? (
+            <section id="workspace-panel-listing" role="tabpanel" aria-labelledby="workspace-tab-listing" className="mt-6 min-w-0 space-y-6">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#081423] px-4 py-3"><div><p className="text-xs uppercase tracking-[0.18em] text-slate-500">{listingDraft ? 'Generated with' : 'Listing Style'}</p><p className="mt-1 font-semibold text-white">{listingDraft?.metadata.listingStandardId ? `${listingDraft.metadata.listingStandardId} Standard` : listingStyle?.standardName ?? 'Not configured'}</p><p className="mt-1 text-xs text-slate-400">{listingDraft ? 'Using your saved Listing Style at generation time' : 'Current saved Listing Style will be used.'}</p></div><Link href="/settings/business-profile/listing" className="rounded-xl border border-white/10 px-4 py-2 text-sm font-semibold text-amber-100 hover:bg-white/5">View Listing Style</Link></div>
+              {listingStyleChanged ? <div role="alert" className="rounded-2xl border border-amber-300/25 bg-amber-300/[0.08] p-4"><p className="font-semibold text-amber-100">Your Listing Style changed after this draft was generated.</p><p className="mt-1 text-sm text-slate-300">The existing draft is unchanged. Generate a new draft to apply the latest preferences.</p><button type="button" onClick={handleGenerateDraft} disabled={isGeneratingDraft || isReadOnly} className="mt-3 rounded-xl bg-amber-300 px-4 py-2.5 text-sm font-semibold text-slate-950 disabled:opacity-50">Generate New Draft</button></div> : null}
+              {initialProject && !listingDraft ? <><GenerationEligibilityPanel eligibility={generationEligibility} current={generationEligibilityCurrent} refreshStatus={eligibilityRefreshStatus} onRetry={retryGenerationEligibility} onReviewProductTruth={() => selectWorkspaceTab('REVIEW')} /><section className="rounded-2xl border border-white/10 bg-[#081423] p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold text-white">Listing Draft</h2><p className="mt-1 text-sm text-slate-400">{isGeneratingDraft ? 'Generating your listing…' : 'No listing generated yet.'}</p>{isGeneratingDraft ? <p role="status" aria-live="polite" className="mt-2 text-sm text-amber-100">Using {listingStyle?.standardName ?? 'your saved Listing Style'}. Your listing will appear after quality checks pass and the draft is saved.</p> : null}</div><button type="button" onClick={handleGenerateDraft} disabled={isReadOnly || isGeneratingDraft || !canGenerateListing} className="rounded-xl bg-amber-300 px-5 py-2.5 text-sm font-semibold text-slate-950 disabled:opacity-50">{isGeneratingDraft ? 'Generating…' : 'Generate Listing'}</button></div>{draftError ? <div role="alert" className="mt-4 rounded-xl bg-rose-400/10 p-4 text-sm text-rose-100"><p>{draftError}</p><button type="button" onClick={handleGenerateDraft} disabled={isGeneratingDraft || !canGenerateListing} className="mt-3 rounded-lg border border-rose-200/20 px-3 py-2 text-xs font-semibold hover:bg-rose-200/10 disabled:opacity-50">Retry</button></div> : null}</section></> : null}
+              {listingDraft ? <ListingDraftReview view="LISTING" draft={listingDraft} onChange={setListingDraft} onSave={handleSaveDraft} onRegenerate={handleRegenerateDraft} saving={isSavingDraft} regenerating={regeneratingSection} autosaveStatus={projectSave.message} readOnly={isReadOnly} error={draftError} onAddToGoldLibrary={canManage ? handleAddToGoldLibrary : undefined} addingToGoldLibrary={isAddingGoldFixture} /> : null}
+            </section>
+          ) : null}
+
+          {workspaceTab === 'REVIEW' ? <section id="workspace-panel-review" role="tabpanel" aria-labelledby="workspace-tab-review" className="mt-6 min-w-0 space-y-6"><div className="grid min-w-0 gap-6 lg:grid-cols-2"><AIDetective product={currentProduct} hasConflict={hasConflict} conflictResolved={conflictResolved} onResolve={handleResolveConflict} visibleSourcesCount={showSources} recommendationConfidence={recommendationConfidence} showRecommendation={showRecommendation} readOnly={isReadOnly} /><CatalogHealth product={{ ...currentProduct, catalogHealth: { ...currentProduct.catalogHealth, score: overview.score, label: overview.label, items: overview.items } }} /><section aria-label="Product Truth summary" className="rounded-[1.75rem] border border-white/10 bg-[#081423] p-5"><h2 className="text-lg font-semibold text-white">Product Truth</h2><p className="mt-2 text-sm text-slate-400">{truthRows.filter(({ status }) => status === 'Verified').length} verified facts · {truthRows.filter(({ status }) => status === 'Conflict').length} conflicts · {truthRows.filter(({ status }) => status !== 'Verified' && status !== 'Conflict').length} items need review</p><p className="mt-3 text-xs text-slate-500">Detailed evidence and field-level diagnostics appear below.</p></section><SourceEvidence sources={currentProduct.sources} /><RecentAnalyses product={currentProduct} /></div>{listingDraft ? <ListingDraftReview view="REVIEW" draft={listingDraft} onChange={setListingDraft} onSave={handleSaveDraft} onRegenerate={handleRegenerateDraft} saving={isSavingDraft} regenerating={regeneratingSection} autosaveStatus={projectSave.message} readOnly={isReadOnly} error={draftError} /> : null}</section> : null}
+
+          {workspaceTab === 'SHOPIFY' ? <div id="workspace-panel-shopify" role="tabpanel" aria-labelledby="workspace-tab-shopify" className="mt-6 space-y-6">{shopifyListingPreview ? <ShopifyListingPreview listing={shopifyListingPreview} notice={listingDraft?.status === 'SAVED' ? 'This is the saved authoritative draft that Safe Publishing will compare with Shopify.' : 'Save the draft before preparing Shopify changes. Safe Publishing always uses the saved authoritative version.'} /> : <section className="rounded-[1.75rem] border border-white/10 bg-[#081423] p-5 sm:p-7"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Shopify Preview</p><h2 className="mt-2 text-2xl font-semibold text-white">Generate a listing to preview Shopify output</h2><p className="mt-2 text-sm text-slate-400">The final title, complete product description, and SEO metadata will appear here.</p></section>}<section className="rounded-[1.75rem] border border-amber-300/20 bg-[#081423] p-5 sm:p-7"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Safe Shopify Publishing</p><h2 className="mt-2 text-2xl font-semibold text-white">Prepare, review, publish, verify</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">Compare the saved draft with the current Shopify product and review every proposed change before anything is published.</p><div className="mt-5 grid gap-3 sm:grid-cols-3">{[['Store', shopifyPublishing?.connected ? 'Connected' : 'Not connected'], ['Product link', shopifyPublishing?.publication ? 'Existing product linked' : 'No published product'], ['Safety', 'Explicit review required']].map(([label, value]) => <div key={label} className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm"><span className="text-slate-500">{label}</span><p className="mt-1 font-medium text-white">{value}</p></div>)}</div>{initialProject ? <Link href={`/workspace/${initialProject.id}/shopify-publish`} className="mt-6 inline-flex rounded-xl bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-200">Prepare for Shopify</Link> : null}</section></div> : null}
+
+          {workspaceTab === 'ADVANCED' ? <section id="workspace-panel-advanced" role="tabpanel" aria-labelledby="workspace-tab-advanced" className="mt-6"><details className="rounded-2xl border border-white/10 bg-[#081423]"><summary className="cursor-pointer px-5 py-4 font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300">Open technical and legacy tools</summary><div className="border-t border-white/10 p-4"><div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
             <div className="min-w-0 space-y-6">
               <ProductInput
                 inputMode={inputMode}
@@ -848,7 +1379,7 @@ export function ListingWorkspace({
                 </div>
                 <div className="min-w-0 space-y-6">
                   <AIDetective
-                    product={activeProduct}
+                    product={currentProduct}
                     hasConflict={hasConflict}
                     conflictResolved={conflictResolved}
                     onResolve={handleResolveConflict}
@@ -857,7 +1388,7 @@ export function ListingWorkspace({
                     showRecommendation={showRecommendation}
                     readOnly={isReadOnly}
                   />
-                  <CatalogHealth product={{ ...activeProduct, catalogHealth: { ...activeProduct.catalogHealth, score: overview.score, label: overview.label, items: overview.items } }} />
+                  <CatalogHealth product={{ ...currentProduct, catalogHealth: { ...currentProduct.catalogHealth, score: overview.score, label: overview.label, items: overview.items } }} />
                 </div>
               </div>
             </div>
@@ -867,11 +1398,11 @@ export function ListingWorkspace({
                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,199,76,0.16),transparent_45%)]" />
                 <div className="relative flex items-start justify-between gap-3">
                   <div>
-                    <div className="text-sm font-semibold text-slate-100">SHOPIFY READY</div>
-                    <div className="mt-2 text-sm text-slate-400">Your catalog is ready to export to Shopify.</div>
+                    <div className="text-sm font-semibold text-slate-100">SHOPIFY CSV EXPORT</div>
+                    <div className="mt-2 text-sm text-slate-400">Export readiness is based on the current listing and unresolved Product Truth conflicts.</div>
                   </div>
-                  <span className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] ${shopifyReady ? 'border-amber-400/20 bg-amber-400/10 text-amber-300' : 'border-white/10 bg-white/5 text-slate-400'}`}>
-                    {shopifyReady ? 'Ready' : 'Stand by'}
+                  <span className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] ${exportReady ? 'border-amber-400/20 bg-amber-400/10 text-amber-300' : 'border-white/10 bg-white/5 text-slate-400'}`}>
+                    {exportReady ? 'Ready' : 'Needs review'}
                   </span>
                 </div>
                 {analysisContext ? (
@@ -884,37 +1415,82 @@ export function ListingWorkspace({
                   <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Export envelope</div>
                   <div className="mt-2 text-xl font-semibold text-slate-100">{activeProduct.brand} {activeProduct.model} • {activeProduct.refreshRate}</div>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-slate-300">{overview.score}% Overall Quality</div>
-                    <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-slate-300">Verified Facts</div>
-                    <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-slate-300">SEO Ready</div>
-                    <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-slate-300">Variant Ready</div>
+                    <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-slate-300">{overview.score}% Product Truth confidence</div>
+                    <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-slate-300">{verifiedFactCount} verified facts</div>
+                    <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-slate-300">{overview.items.find((item) => item.name === 'SEO')?.status === 'good' ? 'SEO fields present' : 'SEO not provided'}</div>
+                    <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-slate-300">Variants not assessed</div>
                   </div>
                 </div>
 
                 <div className="relative mt-5 flex flex-wrap items-center gap-3">
                   <button
                     onClick={handleExport}
-                    disabled={!shopifyReady}
-                    className={`inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold transition ${shopifyReady ? 'bg-amber-400 text-slate-950 hover:bg-amber-300' : 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'}`}
+                    disabled={!exportReady}
+                    className={`inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold transition ${exportReady ? 'bg-amber-400 text-slate-950 hover:bg-amber-300' : 'cursor-not-allowed border border-white/10 bg-white/5 text-slate-500'}`}
                   >
                     <Download className="h-4 w-4" />
                     EXPORT SHOPIFY CSV
                   </button>
                   <div className="rounded-full border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-slate-300">
-                    {shopifyReady ? `${overview.score}% Ready to Export` : 'Awaiting validation'}
+                    {exportReady ? 'Ready to export current fields' : 'Resolve conflicts and complete the listing'}
                   </div>
                 </div>
               </section>
 
-              <GeneratedListing
+              {!initialProject ? <GeneratedListing
                 content={listingContent}
-                onChange={(field, value) => {
-                  if (!isReadOnly) {
-                    setListingContent((prev) => ({ ...prev, [field]: value }));
-                  }
-                }}
+                onChange={(field, value) => setListingContent((prev) => ({ ...prev, [field]: value }))}
                 readOnly={isReadOnly}
-              />
+              /> : null}
+              {initialProject ? (
+                <section className="rounded-[1.75rem] border border-white/10 bg-[#081423] p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h2 className="text-lg font-semibold text-white">Generate Listing</h2>
+                      <p className="mt-1 text-sm text-slate-400">Create a complete structured draft from the approved generation instructions.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleGenerateDraft}
+                      disabled={isReadOnly || isGeneratingDraft || !canGenerateListing}
+                      className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Sparkles className="h-4 w-4" aria-hidden="true" />
+                      {isGeneratingDraft ? 'Generating…' : 'Generate Listing'}
+                    </button>
+                  </div>
+                  {draftError && !listingDraft ? (
+                    <div role="alert" className="mt-4 rounded-xl border border-rose-400/20 bg-rose-400/10 p-4 text-sm">
+                      <p className="font-semibold text-rose-100">Generation needs attention</p>
+                      <p className="mt-1 text-rose-200">{draftError}</p>
+                      <p className="mt-3 text-xs font-semibold uppercase tracking-[0.14em] text-rose-200">Required action</p>
+                      <p className="mt-1 text-slate-300">Resolve the highlighted project or merchant-profile item, then retry.</p>
+                      <button type="button" onClick={handleGenerateDraft} disabled={isGeneratingDraft || !canGenerateListing} className="mt-3 inline-flex items-center gap-2 rounded-full border border-rose-300/20 px-3 py-2 text-xs font-semibold text-rose-100 hover:bg-rose-300/10 disabled:opacity-50">
+                        <Sparkles className="h-3.5 w-3.5" aria-hidden="true" /> Retry generation
+                      </button>
+                    </div>
+                  ) : null}
+                </section>
+              ) : null}
+              {listingDraft ? (
+                <>
+                  <ListingDraftReview
+                    view="ADVANCED"
+                    draft={listingDraft}
+                    onChange={setListingDraft}
+                    onSave={handleSaveDraft}
+                    onRegenerate={handleRegenerateDraft}
+                    saving={isSavingDraft}
+                    regenerating={regeneratingSection}
+                    autosaveStatus={projectSave.message}
+                    readOnly={isReadOnly}
+                    error={draftError}
+                    onAddToGoldLibrary={canManage ? handleAddToGoldLibrary : undefined}
+                    addingToGoldLibrary={isAddingGoldFixture}
+                  />
+                  {initialProject ? <section className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.05] p-5"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-300">Next step</p><h2 className="mt-2 text-xl font-semibold text-white">Prepare for Shopify</h2><p className="mt-2 text-sm leading-6 text-slate-400">Review fresh Shopify values beside the saved ListingPilot proposal before choosing any changes.</p><Link href={`/workspace/${initialProject.id}/shopify-publish`} className="mt-4 inline-flex rounded-xl bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950">Prepare for Shopify</Link></section> : null}
+                </>
+              ) : null}
               {initialProject && shopifyCoordinator ? (
                 <ShopifyPublicationCoordinatorPanel
                   projectId={initialProject.id}
@@ -984,9 +1560,11 @@ export function ListingWorkspace({
                 />
               ) : null}
               <ProductTruthTable rows={truthRows} visibleCount={visibleRows} />
-              <RecentAnalyses product={activeProduct} />
+              <RecentAnalyses product={currentProduct} />
             </div>
-          </div>
+          </div></div></details></section> : null}
+          </>
+          )}
         </div>
       </div>
     </main>

@@ -13,6 +13,7 @@ export class ShopifyReviewError extends Error {
       | 'REMOTE_CHANGED_AFTER_REVIEW'
       | 'NO_CHANGES_SELECTED'
       | 'SELECTIVE_PUBLISH_FAILED'
+      | 'POST_PUBLISH_VERIFICATION_FAILED'
       | 'WORKSPACE_FORBIDDEN',
     readonly statusCode: 400 | 403 | 404 | 409 | 500,
     message: string,
@@ -21,4 +22,3 @@ export class ShopifyReviewError extends Error {
     this.name = 'ShopifyReviewError';
   }
 }
-

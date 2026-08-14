@@ -15,7 +15,7 @@ import {
   hashReviewBaseline,
   resolveReviewProject,
 } from './review-repository.server';
-import { remoteFingerprint } from './review-normalization';
+import { comparableSnapshot, remoteFingerprint } from './review-normalization';
 import { validateReviewDecisions } from './review-decisions';
 import { ShopifyReviewError } from './review-errors';
 import { buildSelectiveUpdatePlan } from './selective-update-plan';
@@ -250,6 +250,35 @@ export async function publishApprovedReview(
   }
 
   const refreshed = await fetchRemote();
+  const refreshedValues = comparableSnapshot(refreshed);
+  const expected = [
+    ...Object.entries(plan.productFieldChanges).map(([path, value]) => [path, value] as const),
+    ...plan.variantChanges.flatMap(({ variantId, fields }) => Object.entries(fields).map(([field, value]) => [`variants.${variantId}.${field}`, value] as const)),
+    ...plan.metafieldChanges.map(({ namespace, key, value }) => [`metafields.${namespace}.${key}`, value] as const),
+    ...plan.mediaChanges.map(({ mediaId, alt }) => [`media.${mediaId}.alt`, alt] as const),
+  ];
+  const canonical = (value: unknown) => JSON.stringify(value, (_key, child) => (
+    child && typeof child === 'object' && !Array.isArray(child)
+      ? Object.fromEntries(Object.entries(child).sort(([left], [right]) => left.localeCompare(right)))
+      : child
+  ));
+  const verificationFailed = expected.some(([path, value]) => (
+    !refreshedValues.has(path) || canonical(refreshedValues.get(path)?.value) !== canonical(value)
+  ));
+  if (verificationFailed) {
+    await prisma.auditLog.create({
+      data: {
+        organizationId: context.organizationId,
+        workspaceId: context.workspaceId,
+        userId,
+        action: 'shopify.publish_verification_failed',
+        entityType: 'ShopifyChangeReview',
+        entityId: review.id,
+        metadata: { projectId, reviewVersion: review.version, expectedCount: expected.length },
+      },
+    });
+    throw new ShopifyReviewError('POST_PUBLISH_VERIFICATION_FAILED', 409, 'Shopify changed, but verification did not match every approved change. Review the product before retrying.');
+  }
   const publishedAt = new Date();
   await prisma.$transaction(async (transaction) => {
     await transaction.shopifyProductImportLink.update({

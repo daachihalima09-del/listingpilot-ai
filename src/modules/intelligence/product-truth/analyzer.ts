@@ -18,6 +18,12 @@ import {
   type ProductTruthResolutionStrategyRegistry,
 } from './resolution.ts';
 import type { ProductTruthAnalysis } from './types.ts';
+import { PRODUCT_INTELLIGENCE_DETECTOR_VERSION } from '../../product-intelligence/domain/contracts.ts';
+import {
+  analyzeProductIntelligenceContext,
+  createProductIntelligenceIssues,
+} from '../../product-intelligence/integration/product-truth-intelligence.ts';
+import type { ProductIntelligenceRegistry } from '../../product-intelligence/registry/product-intelligence-registry.ts';
 
 export interface ProductTruthAnalyzerDependencies {
   readonly configuration: ProductTruthConfiguration;
@@ -26,6 +32,7 @@ export interface ProductTruthAnalyzerDependencies {
   readonly confidenceStrategy: ProductTruthConfidenceStrategy;
   readonly comparisonStrategy: TruthValueComparisonStrategy;
   readonly hasher: IntelligenceHasher;
+  readonly productIntelligenceRegistry: ProductIntelligenceRegistry;
 }
 
 export class ProductTruthAnalyzer {
@@ -61,7 +68,7 @@ export class ProductTruthAnalyzer {
       context,
       hasher: this.dependencies.hasher,
     });
-    const issues = createProductTruthIssues({
+    const truthIssues = createProductTruthIssues({
       groups: evaluation.groups,
       resolutions,
       context,
@@ -70,6 +77,19 @@ export class ProductTruthAnalyzer {
       detectorId,
       detectorVersion: PRODUCT_TRUTH_VERSION,
     });
+    const productIntelligence = analyzeProductIntelligenceContext(
+      context,
+      this.dependencies.productIntelligenceRegistry,
+    );
+    const categoryIssues = createProductIntelligenceIssues({
+      context,
+      analyses: productIntelligence,
+      hasher: this.dependencies.hasher,
+      detectorId,
+      detectorVersion: PRODUCT_INTELLIGENCE_DETECTOR_VERSION,
+    });
+    const issues = [...truthIssues, ...categoryIssues]
+      .sort((left, right) => left.id.localeCompare(right.id));
     const warnings = [...new Set([
       ...extraction.warnings,
       ...grouping.warnings,
@@ -83,6 +103,7 @@ export class ProductTruthAnalyzer {
       issues,
       evidenceSourceDistribution: evaluation.evidenceSourceDistribution,
       warnings,
+      productIntelligence,
       hasher: this.dependencies.hasher,
     });
     return immutableCopy({

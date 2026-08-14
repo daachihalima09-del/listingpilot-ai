@@ -15,6 +15,9 @@ import type {
 import { createMerchantPreferenceService } from './service.ts';
 import { stableMerchantPreferenceFingerprint } from './fingerprint.ts';
 import { createListingProfileForStandard } from './listing-standard.ts';
+import { createSeoProfile } from './seo-profile.ts';
+import { createPublishingProfile } from './publishing-profile.ts';
+import { createAiProfile } from './ai-profile.ts';
 import type {
   MerchantBusinessProfileRecord,
   MerchantPreferenceSectionRecord,
@@ -39,7 +42,7 @@ function access(
 function catalogWrite(
   overrides: Partial<{
     workspaceId: string;
-    sectionId: 'catalog' | 'seo';
+    sectionId: 'catalog' | 'ai';
     schemaVersion: number;
     expectedVersion: number | null;
     source: 'MANUAL' | 'SHOPIFY_IMPORT' | 'MERCHANT_EDIT';
@@ -152,6 +155,13 @@ implements MerchantBusinessProfileRepository {
       previousStatus: existingSection?.status ?? null,
       newVersion: nextSectionVersion,
       status: input.status,
+      changedFields: input.auditChangedFields,
+      listingEvent: input.auditEvent,
+      seoEvent: input.seoAuditEvent,
+      publishingEvent: input.publishingAuditEvent,
+      publishingMetadata: input.publishingAuditMetadata,
+      aiEvent: input.aiAuditEvent,
+      aiMetadata: input.aiAuditMetadata,
     }));
     return next;
   }
@@ -266,13 +276,9 @@ test('allows same-workspace reads but restricts edits to owners', async () => {
   assert.equal(repository.records.get(workspaceA)?.sections[0].version, 1);
 });
 
-test('rejects reserved sections, unsupported versions and malformed payloads', async () => {
+test('rejects unsupported versions and malformed payloads', async () => {
   const { repository, service } = context();
   const cases = [
-    {
-      input: catalogWrite({ sectionId: 'seo' }),
-      code: 'UNSUPPORTED_SECTION',
-    },
     {
       input: catalogWrite({ schemaVersion: 2 }),
       code: 'UNSUPPORTED_SECTION_VERSION',
@@ -344,4 +350,197 @@ test('persists Listing Profiles through the same workspace-scoped concurrency pa
   assert.equal(repository.records.get(workspaceA)?.sections.find(
     ({ sectionId }) => sectionId === 'listing',
   )?.version, 1);
+});
+
+test('permanent Settings changes completed Listing Standards without reopening onboarding', async () => {
+  const { service } = context();
+  const initial = createListingProfileForStandard('NEOVIX');
+  const completed = await service.saveSection(access(), {
+    workspaceId: workspaceA,
+    sectionId: 'listing',
+    schemaVersion: 1,
+    expectedVersion: null,
+    source: 'MANUAL',
+    payload: { ...initial, configurationStatus: 'CONFIGURED' },
+  });
+  let version = completed.sectionVersions.listing!;
+  let fingerprint = completed.sections.find(
+    ({ sectionId }) => sectionId === 'listing',
+  )!.fingerprint;
+
+  for (const standardId of ['MINIMAL', 'CUSTOM', 'NEOVIX'] as const) {
+    const updated = await service.savePermanentSection(access(), {
+      workspaceId: workspaceA,
+      sectionId: 'listing',
+      schemaVersion: 1,
+      expectedVersion: version,
+      source: 'MERCHANT_EDIT',
+      payload: createListingProfileForStandard(standardId),
+    });
+    const listing = updated.sections.find(
+      ({ sectionId }) => sectionId === 'listing',
+    )!;
+    assert.equal(listing.status, 'COMPLETE');
+    assert.equal(listing.data && (listing.data as { standardId: string }).standardId, standardId);
+    assert.equal(listing.metadata.onboardingCompletionPreserved, true);
+    assert.equal(listing.version, version + 1);
+    assert.notEqual(listing.fingerprint, fingerprint);
+    assert.equal((await service.getProfile(workspaceA))?.sections.find(
+      ({ sectionId }) => sectionId === 'listing',
+    )?.fingerprint, listing.fingerprint);
+    const completion = await service.getCompletion(workspaceA);
+    assert.equal(completion.listingComplete, true);
+    assert.equal(completion.nextRequiredSection, 'catalog');
+    const effective = await service.getEffectivePreferences(workspaceA);
+    assert.equal(effective.listing.standardId, standardId);
+    assert.equal(effective.listing.source, 'MERCHANT_EDIT');
+    version = listing.version;
+    fingerprint = listing.fingerprint;
+  }
+});
+
+test('onboarding still rejects COMPLETE to IN_PROGRESS Listing Standard transitions', async () => {
+  const { service } = context();
+  const initial = createListingProfileForStandard('NEOVIX');
+  await service.saveSection(access(), {
+    workspaceId: workspaceA,
+    sectionId: 'listing',
+    schemaVersion: 1,
+    expectedVersion: null,
+    source: 'MANUAL',
+    payload: { ...initial, configurationStatus: 'CONFIGURED' },
+  });
+  await assert.rejects(
+    service.saveSection(access(), {
+      workspaceId: workspaceA,
+      sectionId: 'listing',
+      schemaVersion: 1,
+      expectedVersion: 1,
+      source: 'MERCHANT_EDIT',
+      payload: createListingProfileForStandard('MINIMAL'),
+    }),
+    (error: unknown) => error instanceof MerchantPreferenceError
+      && error.code === 'INVALID_COMPLETION_TRANSITION',
+  );
+});
+
+test('permanent Settings keeps OWNER and workspace boundaries server-enforced', async () => {
+  const { repository, service } = context();
+  await assert.rejects(
+    service.savePermanentSection(access(workspaceA, 'MEMBER'), catalogWrite()),
+    (error: unknown) => error instanceof MerchantPreferenceError
+      && error.statusCode === 403,
+  );
+  await assert.rejects(
+    service.savePermanentSection(access(workspaceA), catalogWrite({
+      workspaceId: workspaceB,
+    })),
+    (error: unknown) => error instanceof MerchantPreferenceError
+      && error.statusCode === 404,
+  );
+  assert.equal(repository.records.size, 0);
+});
+
+test('persists SEO Profiles with workspace isolation, safe audit and optimistic concurrency', async () => {
+  const { repository, service } = context();
+  const created = await service.saveSection(access(), {
+    workspaceId: workspaceA,
+    sectionId: 'seo',
+    schemaVersion: 1,
+    expectedVersion: null,
+    source: 'MANUAL',
+    payload: createSeoProfile('REVIEW_EXISTING_SEO'),
+  });
+  const seo = created.sections.find(({ sectionId }) => sectionId === 'seo');
+  assert.equal(seo?.status, 'COMPLETE');
+  assert.equal(seo?.version, 1);
+  assert.equal(repository.audits.at(-1)?.action, 'seo_profile.review_requested');
+  assert.deepEqual(repository.audits.at(-1)?.metadata.changedFields, [
+    'title', 'metaDescription', 'urlHandle', 'searchIntent', 'keywords',
+    'branding', 'imageSeo', 'structuredData', 'indexing', 'quality',
+  ]);
+  assert.equal(await service.getProfile(workspaceB), null);
+
+  await assert.rejects(
+    service.saveSection(access(), {
+      workspaceId: workspaceA,
+      sectionId: 'seo',
+      schemaVersion: 1,
+      expectedVersion: 7,
+      source: 'MERCHANT_EDIT',
+      payload: createSeoProfile('MANUAL'),
+    }),
+    (error: unknown) => error instanceof MerchantPreferenceError
+      && error.code === 'PREFERENCE_CONCURRENCY_CONFLICT',
+  );
+  assert.equal(repository.records.get(workspaceA)?.sections[0]?.version, 1);
+});
+
+test('records SEO mode changes without raw profile values in audit metadata', async () => {
+  const { repository, service } = context();
+  await service.saveSection(access(), {
+    workspaceId: workspaceA,
+    sectionId: 'seo',
+    schemaVersion: 1,
+    expectedVersion: null,
+    source: 'MANUAL',
+    payload: createSeoProfile('LISTINGPILOT_STANDARD'),
+  });
+  const manual = createSeoProfile('MANUAL');
+  manual.rules.title.separator = 'DASH';
+  await service.saveSection(access(), {
+    workspaceId: workspaceA,
+    sectionId: 'seo',
+    schemaVersion: 1,
+    expectedVersion: 1,
+    source: 'MERCHANT_EDIT',
+    payload: manual,
+  });
+  const audit = repository.audits.at(-1);
+  assert.equal(audit?.action, 'seo_profile.mode_selected');
+  assert.deepEqual(audit?.metadata.changedFields, ['title']);
+  assert.doesNotMatch(JSON.stringify(audit), /preferredStoreDisplayName|prohibitedTerms|targetRange/);
+});
+
+test('persists Publishing Profiles with OWNER access, optimistic concurrency and safe audit metadata', async () => {
+  const { repository, service } = context();
+  const created = await service.saveSection(access(), {
+    workspaceId: workspaceA,
+    sectionId: 'publishing',
+    schemaVersion: 1,
+    expectedVersion: null,
+    source: 'MANUAL',
+    payload: createPublishingProfile('LISTINGPILOT_SAFE_DEFAULTS'),
+  });
+  const publishing = created.sections.find(({ sectionId }) => sectionId === 'publishing');
+  assert.equal(publishing?.version, 1);
+  assert.equal(publishing?.status, 'COMPLETE');
+  assert.equal(repository.audits.at(-1)?.action, 'publishing_profile.created');
+  assert.equal(repository.audits.at(-1)?.metadata.setupMode, 'LISTINGPILOT_SAFE_DEFAULTS');
+  assert.doesNotMatch(JSON.stringify(repository.audits.at(-1)), /approvedNamespaces|accessToken|MANAGED_BY_LISTINGPILOT/i);
+  await assert.rejects(service.saveSection(access(), {
+    workspaceId: workspaceA,
+    sectionId: 'publishing',
+    schemaVersion: 1,
+    expectedVersion: 99,
+    source: 'MERCHANT_EDIT',
+    payload: createPublishingProfile('MANUAL'),
+  }), (error: unknown) => error instanceof MerchantPreferenceError && error.code === 'PREFERENCE_CONCURRENCY_CONFLICT');
+  assert.equal(repository.audits.length, 1);
+  assert.equal(repository.records.get(workspaceA)?.sections[0]?.version, 1);
+});
+
+test('persists AI Profiles with OWNER access, optimistic concurrency and bounded audit metadata', async () => {
+  const { repository, service } = context();
+  const created = await service.saveSection(access(), { workspaceId: workspaceA, sectionId: 'ai', schemaVersion: 1, expectedVersion: null, source: 'MANUAL', payload: createAiProfile('LISTINGPILOT_SAFE_AI') });
+  const ai = created.sections.find(({ sectionId }) => sectionId === 'ai');
+  assert.equal(ai?.version, 1);
+  assert.equal(ai?.status, 'COMPLETE');
+  assert.equal(repository.audits.at(-1)?.action, 'ai_profile.created');
+  assert.equal(repository.audits.at(-1)?.metadata.creativityLevel, 'LOW');
+  assert.equal(repository.audits.at(-1)?.metadata.reviewThresholdCount, 4);
+  assert.doesNotMatch(JSON.stringify(repository.audits.at(-1)), /prompt|product content|api key|accessToken|INVENT_FACTS/i);
+  await assert.rejects(service.saveSection(access(), { workspaceId: workspaceA, sectionId: 'ai', schemaVersion: 1, expectedVersion: 99, source: 'MERCHANT_EDIT', payload: createAiProfile('BALANCED_AI') }), (error: unknown) => error instanceof MerchantPreferenceError && error.code === 'PREFERENCE_CONCURRENCY_CONFLICT');
+  assert.equal(repository.audits.length, 1);
+  await assert.rejects(service.saveSection(access(workspaceA, 'MEMBER'), { workspaceId: workspaceA, sectionId: 'ai', schemaVersion: 1, expectedVersion: 1, source: 'MERCHANT_EDIT', payload: createAiProfile('BALANCED_AI') }), (error: unknown) => error instanceof MerchantPreferenceError && error.statusCode === 403);
 });

@@ -1,6 +1,9 @@
 import type { CatalogPreferenceData } from './catalog-section.ts';
 import type { ListingPreferenceData, ListingRules } from './listing-standard.ts';
 import { createListingProfileForStandard } from './listing-standard.ts';
+import type { SeoProfile } from './seo-profile.ts';
+import { resolveEffectivePublishingProfile, type EffectivePublishingProfile } from './effective-publishing-profile.ts';
+import { resolveEffectiveAiProfile, type EffectiveAiProfile } from './effective-ai-profile.ts';
 import { findMerchantPreferenceSection } from './business-profile.ts';
 import { stableMerchantPreferenceFingerprint } from './fingerprint.ts';
 import type { MerchantPreferenceRegistry } from './registry.ts';
@@ -27,6 +30,22 @@ export interface EffectiveMerchantPreferences {
   readonly workspaceId: string;
   readonly catalog: EffectiveCatalogPreferences;
   readonly listing: EffectiveListingPreferences;
+  readonly seo: EffectiveSeoPreferences;
+  readonly publishing: EffectivePublishingProfile;
+  readonly ai: EffectiveAiProfile;
+  readonly fingerprint: string;
+}
+
+export interface EffectiveSeoPreferences {
+  readonly schemaVersion: 1;
+  readonly values: SeoProfile;
+  readonly sourceByRuleGroup: Readonly<Record<keyof SeoProfile['rules'], MerchantPreferenceSource>>;
+  readonly merchantConfigured: boolean;
+  readonly complete: boolean;
+  readonly validationStatus: MerchantPreferenceValidationStatus;
+  readonly sourceExplanation: string;
+  readonly pendingAnalysis: boolean;
+  readonly issues: readonly string[];
   readonly fingerprint: string;
 }
 
@@ -150,14 +169,51 @@ export function resolveEffectiveMerchantPreferences(
     ...listingWithoutFingerprint,
     fingerprint: stableMerchantPreferenceFingerprint(listingWithoutFingerprint),
   });
+  const seoDefinition = registry.get<SeoProfile>('seo');
+  const seoSection = findMerchantPreferenceSection<SeoProfile>(profile, 'seo');
+  const validSeo = Boolean(seoSection?.data && seoSection.validationStatus === 'VALID' && seoSection.status !== 'INVALID');
+  const seoValues = validSeo && seoSection?.data ? seoSection.data : seoDefinition.defaultProvider();
+  const seoCompletion = validSeo && seoSection?.data
+    ? seoDefinition.completionEvaluator(seoSection.data)
+    : { complete: false, validationStatus: seoSection?.validationStatus ?? 'VALID', issues: seoSection ? ['The stored SEO Profile is invalid.'] : [] };
+  const seoSource = validSeo ? seoSection!.source : 'PLATFORM_DEFAULT' as const;
+  const sourceByRuleGroup = Object.freeze(Object.fromEntries(
+    Object.keys(seoValues.rules).map((key) => [key, seoSource]),
+  ) as Record<keyof SeoProfile['rules'], MerchantPreferenceSource>);
+  const seoWithoutFingerprint = {
+    schemaVersion: 1 as const,
+    values: seoValues,
+    sourceByRuleGroup,
+    merchantConfigured: validSeo,
+    complete: Boolean(validSeo && seoSection?.status === 'COMPLETE' && seoCompletion.complete),
+    validationStatus: validSeo ? seoCompletion.validationStatus : seoSection?.validationStatus ?? 'VALID',
+    sourceExplanation: validSeo
+      ? 'ListingPilot SEO safety defaults are applied first, followed by the merchant-approved SEO Profile.'
+      : 'ListingPilot SEO safety defaults apply until the merchant approves an SEO Profile.',
+    pendingAnalysis: seoValues.analysisStatus === 'PENDING_ANALYSIS',
+    issues: Object.freeze([...seoCompletion.issues]),
+  };
+  const seo = Object.freeze({ ...seoWithoutFingerprint, fingerprint: stableMerchantPreferenceFingerprint(seoWithoutFingerprint) });
+  const publishing = resolveEffectivePublishingProfile(profile, registry);
+  const ai = resolveEffectiveAiProfile(profile, registry, {
+    listingProfileEnforced: listing.merchantConfigured,
+    seoProfileEnforced: seo.merchantConfigured,
+    publishingApprovalRequired: publishing.policies.approval.explicitMerchantActionRequired,
+  });
   return Object.freeze({
     workspaceId,
     catalog,
     listing,
+    seo,
+    publishing,
+    ai,
     fingerprint: stableMerchantPreferenceFingerprint({
       workspaceId,
       catalog: catalog.fingerprint,
       listing: listing.fingerprint,
+      seo: seo.fingerprint,
+      publishing: publishing.fingerprint,
+      ai: ai.fingerprint,
     }),
   });
 }

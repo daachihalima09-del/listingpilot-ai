@@ -7,21 +7,18 @@ interface ActivityTimelineProps {
 }
 
 const events = [
-  'Reading Supplier URL',
+  'Reading Product Input',
   'Extracting Facts',
-  'Checking Samsung Official',
-  'Checking Amazon',
-  'Finding Conflict in Refresh Rate',
+  'Validating Product Identity',
+  'Checking Available Sources',
+  'Detecting Conflicts',
   'Building Product Truth',
-  'Generating Listing',
-  'Running Quality Review',
-  'Shopify Ready',
 ];
 
 export function ActivityTimeline({ currentIndex, completedCount, hasConflict }: ActivityTimelineProps) {
   return (
     <section className="rounded-[1.75rem] border border-white/10 bg-[#081423] p-5">
-      <div className="text-sm font-semibold text-slate-100">Live activity timeline</div>
+      <div className="text-sm font-semibold text-slate-100">Analysis progress</div>
       <div className="mt-4 space-y-3">
         {events.map((event, index) => {
           const isComplete = index < completedCount;
@@ -32,7 +29,7 @@ export function ActivityTimeline({ currentIndex, completedCount, hasConflict }: 
                 {isCurrent ? <Loader2 className="h-4 w-4 animate-spin" /> : isComplete ? <CheckCircle2 className="h-4 w-4" /> : <Circle className="h-4 w-4" />}
               </div>
               <div className="flex-1 text-sm text-slate-200">{event}</div>
-              {hasConflict && event === 'Finding Conflict in Refresh Rate' ? <span className="text-xs font-semibold text-rose-400">Conflict</span> : null}
+              {hasConflict && event === 'Detecting Conflicts' ? <span className="text-xs font-semibold text-rose-400">Conflict</span> : null}
             </div>
           );
         })}

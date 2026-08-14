@@ -42,6 +42,8 @@ export class ProductTruthDetector implements IntelligenceDetector {
         claimGroupCount: analysis.report.claimGroupCount,
         findingCount: analysis.report.findings.length,
         issueCount: analysis.issues.length,
+        matchedProductIntelligencePackCount: analysis.report.productIntelligence
+          ?.filter(({ intelligencePack }) => intelligencePack !== null).length ?? 0,
       },
       metadata: {
         productTruthReport: analysis.report,

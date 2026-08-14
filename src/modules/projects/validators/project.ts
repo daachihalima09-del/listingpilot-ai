@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { listingDraftSchema } from '../../listing-draft/validation/draft-schema.ts';
 
 export const projectStatuses = ['DRAFT', 'READY', 'ARCHIVED'] as const;
 export const projectSourceTypes = [
@@ -121,6 +122,7 @@ export const projectGeneratedListingSchema = z.object({
   title: z.string().max(10_000),
   description: z.string().max(100_000),
   keyFeatures: z.string().max(50_000),
+  listingDraft: listingDraftSchema.optional(),
 }).strict();
 
 export const projectSeoDataSchema = z.object({

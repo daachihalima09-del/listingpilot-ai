@@ -5,8 +5,10 @@ import { useRouter } from 'next/navigation';
 
 export function ShopifyCatalogImportButton({
   productId,
+  label = 'Import to ListingPilot',
 }: {
   productId: string;
+  label?: string;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -51,10 +53,9 @@ export function ShopifyCatalogImportButton({
         aria-busy={busy}
         className="rounded-lg bg-amber-400 px-3 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {busy ? 'Importing…' : 'Import to ListingPilot'}
+        {busy ? 'Verifying…' : label}
       </button>
       {error ? <p role="alert" className="mt-2 text-xs text-rose-300">{error}</p> : null}
     </div>
   );
 }
-

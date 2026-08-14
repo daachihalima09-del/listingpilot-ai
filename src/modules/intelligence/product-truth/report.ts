@@ -19,6 +19,7 @@ import type {
   TruthResolutionStatus,
 } from './types.ts';
 import { getPriorDetectorMetadata } from '../detectors/execution-metadata.ts';
+import type { ProductIntelligenceAnalysisResult } from '../../product-intelligence/domain/contracts.ts';
 
 const confidenceLevels: readonly ConfidenceLevel[] = ['VERY_LOW', 'LOW', 'MEDIUM', 'HIGH', 'VERY_HIGH'];
 const resolutionStatuses: readonly TruthResolutionStatus[] = [
@@ -129,6 +130,7 @@ export function createProductTruthReport(input: {
   readonly issues: readonly IntelligenceIssue[];
   readonly evidenceSourceDistribution: Readonly<Record<string, number>>;
   readonly warnings: readonly string[];
+  readonly productIntelligence?: readonly ProductIntelligenceAnalysisResult[];
   readonly hasher: IntelligenceHasher;
 }): ProductTruthReport {
   const findings = findingsFor(input);
@@ -151,6 +153,7 @@ export function createProductTruthReport(input: {
     evidenceSourceDistribution: input.evidenceSourceDistribution,
     strategyStatistics,
     warnings: [...new Set(input.warnings)].sort(),
+    productIntelligence: input.productIntelligence ?? [],
   };
   return immutableCopy({
     schemaVersion: PRODUCT_TRUTH_VERSION,
@@ -171,6 +174,7 @@ export function createProductTruthReport(input: {
     merchantOverrideCount: statusCount('MERCHANT_OVERRIDE'),
     notApplicableCount: statusCount('NOT_APPLICABLE'),
     findings,
+    productIntelligence: input.productIntelligence ?? [],
     confidenceDistribution,
     evidenceSourceDistribution: input.evidenceSourceDistribution,
     resolutionStrategyStatistics: strategyStatistics,

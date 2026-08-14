@@ -41,17 +41,14 @@ test('rejects duplicate section registrations', () => {
   );
 });
 
-test('Listing is active while future reserved sections have no active definition', () => {
+test('Listing, SEO, Publishing and AI are active in profile order', () => {
   const registry = createMerchantPreferenceRegistry();
   assert.equal(registry.has('listing'), true);
-  assert.deepEqual(registry.activeSectionIds(), ['catalog', 'listing']);
-  assert.throws(
-    () => registry.get('seo'),
-    (error: unknown) => (
-      error instanceof MerchantPreferenceError
-      && error.code === 'UNSUPPORTED_SECTION'
-    ),
-  );
+  assert.equal(registry.has('seo'), true);
+  assert.equal(registry.has('publishing'), true);
+  assert.equal(registry.has('ai'), true);
+  assert.deepEqual(registry.activeSectionIds(), ['catalog', 'listing', 'seo', 'publishing', 'ai']);
+  assert.equal(registry.get('ai').currentSchemaVersion, 1);
 });
 
 test('Catalog serialization and deserialization preserve detailed validation', () => {

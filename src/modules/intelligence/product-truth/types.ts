@@ -184,6 +184,7 @@ export interface ProductTruthReport {
   readonly merchantOverrideCount: number;
   readonly notApplicableCount: number;
   readonly findings: readonly TruthFinding[];
+  readonly productIntelligence?: readonly import('../../product-intelligence/domain/contracts.ts').ProductIntelligenceAnalysisResult[];
   readonly confidenceDistribution: Readonly<Record<string, number>>;
   readonly evidenceSourceDistribution: Readonly<Record<string, number>>;
   readonly resolutionStrategyStatistics: Readonly<Record<string, number>>;

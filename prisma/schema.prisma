@@ -44,6 +44,21 @@ enum ShopifyChangeReviewStatus {
   PUBLISHED
 }
 
+enum ShopifyPublishingPlanMode {
+  UPDATE_EXISTING
+  CREATE_NEW
+  BLOCKED
+}
+
+enum ShopifyPublishingPlanStatus {
+  OPEN
+  STALE
+  EXECUTING
+  COMPLETED
+  PARTIAL
+  FAILED
+}
+
 enum ShopifyStoreStatus {
   PENDING
   CONNECTED
@@ -166,6 +181,32 @@ enum ShopifyPublicationStepStatus {
   BLOCKED
 }
 
+enum ListingGoldFixtureStatus {
+  DRAFT
+  UNDER_REVIEW
+  APPROVED
+  DEPRECATED
+  REJECTED
+}
+
+enum ListingCalibrationReportStatus {
+  EXCELLENT_MATCH
+  GOOD_MATCH
+  NEEDS_CALIBRATION
+  POOR_MATCH
+  INVALID_COMPARISON
+  BLOCKED
+}
+
+enum CraftRuleProposalStatus {
+  DRAFT
+  READY_FOR_REVIEW
+  APPROVED
+  REJECTED
+  DEFERRED
+  APPLIED_EXTERNALLY
+}
+
 model User {
   id                           String                        @id @default(uuid()) @db.Uuid
   email                        String                        @unique @db.VarChar(320)
@@ -186,6 +227,7 @@ model User {
   shopifyImageUploadSessions   ShopifyImageUploadSession[]
   shopifyPublicationExecutions ShopifyPublicationExecution[]
   shopifyChangeReviews         ShopifyChangeReview[]
+  shopifyPublishingPlans       ShopifyPublishingPlan[]
 
   @@index([status])
   @@map("users")
@@ -205,20 +247,24 @@ model Organization {
 }
 
 model Workspace {
-  id                      String                   @id @default(uuid()) @db.Uuid
-  organizationId          String                   @map("organization_id") @db.Uuid
-  name                    String                   @db.VarChar(200)
-  slug                    String                   @db.VarChar(100)
-  createdAt               DateTime                 @default(now()) @map("created_at")
-  updatedAt               DateTime                 @updatedAt @map("updated_at")
-  organization            Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  auditLogs               AuditLog[]
-  projects                Project[]
-  shopifyStores           ShopifyStore[]
-  shopifyOAuthStates      ShopifyOAuthState[]
-  shopifyLaunchIntents    ShopifyLaunchIntent[]
-  merchantCatalogProfile  MerchantCatalogProfile?
-  merchantBusinessProfile MerchantBusinessProfile?
+  id                        String                     @id @default(uuid()) @db.Uuid
+  organizationId            String                     @map("organization_id") @db.Uuid
+  name                      String                     @db.VarChar(200)
+  slug                      String                     @db.VarChar(100)
+  createdAt                 DateTime                   @default(now()) @map("created_at")
+  updatedAt                 DateTime                   @updatedAt @map("updated_at")
+  organization              Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  auditLogs                 AuditLog[]
+  projects                  Project[]
+  shopifyStores             ShopifyStore[]
+  shopifyOAuthStates        ShopifyOAuthState[]
+  shopifyLaunchIntents      ShopifyLaunchIntent[]
+  merchantCatalogProfile    MerchantCatalogProfile?
+  merchantBusinessProfile   MerchantBusinessProfile?
+  listingGoldFixtures       ListingGoldFixture[]
+  listingCalibrationReports ListingCalibrationReport[]
+  craftRuleProposals        CraftRuleProposal[]
+  shopifyPublishingPlans    ShopifyPublishingPlan[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -328,6 +374,9 @@ model Project {
   shopifyPublicationExecutions  ShopifyPublicationExecution[]
   shopifyProductImportLink      ShopifyProductImportLink?
   shopifyChangeReviews          ShopifyChangeReview[]
+  shopifyPublishingPlans        ShopifyPublishingPlan[]
+  listingGoldFixtures           ListingGoldFixture[]
+  listingCalibrationReports     ListingCalibrationReport[]
 
   @@unique([id, workspaceId])
   @@index([workspaceId])
@@ -335,6 +384,95 @@ model Project {
   @@index([workspaceId, status])
   @@index([archivedAt])
   @@map("projects")
+}
+
+model ListingGoldFixture {
+  id                      String                     @id @default(uuid()) @db.Uuid
+  workspaceId             String                     @map("workspace_id") @db.Uuid
+  projectId               String?                    @map("project_id") @db.Uuid
+  sourceDraftId           String                     @map("source_draft_id") @db.VarChar(255)
+  schemaVersion           Int                        @map("schema_version")
+  fixtureVersion          String                     @map("fixture_version") @db.VarChar(50)
+  version                 Int                        @default(1)
+  status                  ListingGoldFixtureStatus   @default(DRAFT)
+  name                    String                     @db.VarChar(200)
+  category                String                     @db.VarChar(120)
+  productTruthFingerprint String                     @map("product_truth_fingerprint") @db.Char(16)
+  craftPackId             String                     @map("craft_pack_id") @db.VarChar(64)
+  craftPackVersion        String                     @map("craft_pack_version") @db.VarChar(50)
+  fingerprint             String                     @db.Char(16)
+  payload                 Json                       @db.JsonB
+  createdByUserId         String                     @map("created_by_user_id") @db.Uuid
+  approvedByUserId        String?                    @map("approved_by_user_id") @db.Uuid
+  approvedAt              DateTime?                  @map("approved_at")
+  createdAt               DateTime                   @default(now()) @map("created_at")
+  updatedAt               DateTime                   @updatedAt @map("updated_at")
+  workspace               Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project                 Project?                   @relation(fields: [projectId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  calibrationReports      ListingCalibrationReport[]
+
+  @@unique([id, workspaceId])
+  @@index([workspaceId, status, updatedAt])
+  @@index([workspaceId, category, status])
+  @@index([projectId, workspaceId])
+  @@index([craftPackId, craftPackVersion])
+  @@map("listing_gold_fixtures")
+}
+
+model ListingCalibrationReport {
+  id               String                         @id @default(uuid()) @db.Uuid
+  workspaceId      String                         @map("workspace_id") @db.Uuid
+  projectId        String                         @map("project_id") @db.Uuid
+  fixtureId        String                         @map("fixture_id") @db.Uuid
+  schemaVersion    Int                            @map("schema_version")
+  reportVersion    String                         @map("report_version") @db.VarChar(50)
+  version          Int                            @default(1)
+  status           ListingCalibrationReportStatus
+  overallScore     Int                            @map("overall_score")
+  craftPackId      String                         @map("craft_pack_id") @db.VarChar(64)
+  craftPackVersion String                         @map("craft_pack_version") @db.VarChar(50)
+  fingerprint      String                         @db.Char(16)
+  payload          Json                           @db.JsonB
+  createdByUserId  String                         @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime                       @default(now()) @map("created_at")
+  updatedAt        DateTime                       @updatedAt @map("updated_at")
+  workspace        Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project          Project                        @relation(fields: [projectId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  fixture          ListingGoldFixture             @relation(fields: [fixtureId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+
+  @@unique([id, workspaceId])
+  @@index([workspaceId, status, createdAt])
+  @@index([fixtureId, workspaceId, createdAt])
+  @@index([projectId, workspaceId])
+  @@map("listing_calibration_reports")
+}
+
+model CraftRuleProposal {
+  id                      String                  @id @default(uuid()) @db.Uuid
+  workspaceId             String                  @map("workspace_id") @db.Uuid
+  schemaVersion           Int                     @map("schema_version")
+  proposalVersion         String                  @map("proposal_version") @db.VarChar(50)
+  version                 Int                     @default(1)
+  status                  CraftRuleProposalStatus @default(DRAFT)
+  craftPackId             String                  @map("craft_pack_id") @db.VarChar(64)
+  currentCraftPackVersion String                  @map("current_craft_pack_version") @db.VarChar(50)
+  targetRuleId            String                  @map("target_rule_id") @db.VarChar(200)
+  confidence              Float
+  fingerprint             String                  @db.Char(16)
+  payload                 Json                    @db.JsonB
+  createdByUserId         String                  @map("created_by_user_id") @db.Uuid
+  approvedByUserId        String?                 @map("approved_by_user_id") @db.Uuid
+  reviewedAt              DateTime?               @map("reviewed_at")
+  createdAt               DateTime                @default(now()) @map("created_at")
+  updatedAt               DateTime                @updatedAt @map("updated_at")
+  workspace               Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([id, workspaceId])
+  @@unique([workspaceId, fingerprint])
+  @@index([workspaceId, status, updatedAt])
+  @@index([workspaceId, targetRuleId])
+  @@index([craftPackId, currentCraftPackVersion])
+  @@map("craft_rule_proposals")
 }
 
 model ShopifyVariantConfiguration {
@@ -484,6 +622,7 @@ model ShopifyStore {
   publicationExecutions    ShopifyPublicationExecution[]
   productImportLinks       ShopifyProductImportLink[]
   changeReviews            ShopifyChangeReview[]
+  publishingPlans          ShopifyPublishingPlan[]
 
   @@unique([id, workspaceId])
   @@index([workspaceId])
@@ -566,6 +705,42 @@ model ShopifyChangeReview {
   @@index([status, expiresAt])
   @@index([id, version])
   @@map("shopify_change_reviews")
+}
+
+model ShopifyPublishingPlan {
+  id                String                      @id @default(uuid()) @db.Uuid
+  projectId         String                      @map("project_id") @db.Uuid
+  workspaceId       String                      @map("workspace_id") @db.Uuid
+  shopifyStoreId    String                      @map("shopify_store_id") @db.Uuid
+  createdByUserId   String                      @map("created_by_user_id") @db.Uuid
+  mode              ShopifyPublishingPlanMode
+  status            ShopifyPublishingPlanStatus @default(OPEN)
+  shopifyProductGid String?                     @map("shopify_product_gid") @db.VarChar(255)
+  schemaVersion     Int                         @default(1) @map("schema_version")
+  planVersion       Int                         @default(1) @map("plan_version")
+  projectVersion    Int                         @map("project_version")
+  draftFingerprint  String                      @map("draft_fingerprint") @db.Char(64)
+  remoteFingerprint String?                     @map("remote_fingerprint") @db.Char(64)
+  remoteUpdatedAt   DateTime?                   @map("remote_updated_at")
+  planFingerprint   String                      @map("plan_fingerprint") @db.Char(64)
+  payload           Json                        @db.JsonB
+  reviewSelection   Json                        @default("{}") @map("review_selection") @db.JsonB
+  expiresAt         DateTime                    @map("expires_at")
+  executionKey      String?                     @unique @map("execution_key") @db.VarChar(100)
+  executedAt        DateTime?                   @map("executed_at")
+  createdAt         DateTime                    @default(now()) @map("created_at")
+  updatedAt         DateTime                    @updatedAt @map("updated_at")
+  project           Project                     @relation(fields: [projectId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  workspace         Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  shopifyStore      ShopifyStore                @relation(fields: [shopifyStoreId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  createdByUser     User                        @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([id, workspaceId])
+  @@index([projectId, workspaceId, createdAt])
+  @@index([workspaceId, status, createdAt])
+  @@index([shopifyStoreId, shopifyProductGid])
+  @@index([status, expiresAt])
+  @@map("shopify_publishing_plans")
 }
 
 model ShopifyImageConfiguration {

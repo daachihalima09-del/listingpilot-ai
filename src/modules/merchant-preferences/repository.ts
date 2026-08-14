@@ -24,6 +24,12 @@ export interface MerchantBusinessProfileRepository {
     fingerprint: string;
     metadata: Readonly<Record<string, unknown>>;
     auditEvent?: 'STANDARD_SELECTED' | 'CREATED' | 'UPDATED' | 'COMPLETED';
+    seoAuditEvent?: 'MODE_SELECTED' | 'CREATED' | 'UPDATED' | 'COMPLETED' | 'REVIEW_REQUESTED' | 'REVIEW_REQUIRED';
+    publishingAuditEvent?: 'MODE_SELECTED' | 'CREATED' | 'UPDATED' | 'COMPLETED' | 'REVIEW_REQUESTED' | 'REVIEW_REQUIRED' | 'RESET_TO_DEFAULTS';
+    publishingAuditMetadata?: Readonly<Record<string, string | boolean>>;
+    aiAuditEvent?: 'MODE_SELECTED' | 'CREATED' | 'UPDATED' | 'COMPLETED' | 'REVIEW_REQUIRED' | 'RESET_TO_DEFAULTS';
+    aiAuditMetadata?: Readonly<Record<string, string | number | boolean>>;
+    auditChangedFields?: readonly string[];
     completedAt: Date | null;
   }): Promise<MerchantBusinessProfileRecord>;
 }

@@ -217,7 +217,13 @@ MerchantBusinessProfileRepository = {
         previousStatus: existingSection?.status ?? null,
         newVersion: newSectionVersion,
         status: input.status,
+        changedFields: input.auditChangedFields,
         listingEvent: input.auditEvent,
+        seoEvent: input.seoAuditEvent,
+        publishingEvent: input.publishingAuditEvent,
+        publishingMetadata: input.publishingAuditMetadata,
+        aiEvent: input.aiAuditEvent,
+        aiMetadata: input.aiAuditMetadata,
       });
       if (!existingBusinessProfile) {
         const profileAudit = merchantProfileCreatedAuditEvent();

@@ -55,3 +55,32 @@ export const demoProduct: DemoProduct = {
     { title: 'Sony WH-1000XM5 Headphones', status: 'Completed', score: 94 },
   ],
 };
+
+export const demoProductSpecifications = [
+  'Samsung Q80D 4K QLED TV',
+  'Brand: Samsung',
+  'Model: Q80D',
+  'Panel: QLED',
+  'HDR: HDR10+',
+  'Refresh Rate: 120Hz',
+  'Resolution: 4K UHD',
+  'Smart Platform: Tizen OS',
+  'Warranty: Missing',
+  'Key claims: Premium 4K QLED display with verified features and a refined product narrative.',
+].join('\n');
+
+export function buildDemoListingContent(product: DemoProduct) {
+  return {
+    title: `${product.brand} ${product.model} 4K QLED TV`,
+    description: `The ${product.brand} ${product.model} combines a premium QLED panel, ${product.hdr} support, and ${product.refreshRate} motion clarity for a polished home entertainment experience.`,
+    keyFeatures: [
+      'Premium QLED panel with bright, accurate color',
+      'HDR10+ and 4K UHD resolution for cinematic picture quality',
+      'Tizen OS smart platform with simple streaming access',
+      'Verified premium feature set for Shopify-ready listings',
+    ].join('\n'),
+    seoTitle: `${product.brand} ${product.model} 4K QLED TV`,
+    seoDescription: `${product.brand} ${product.model} offers premium QLED imaging, ${product.hdr} support, and ${product.refreshRate} motion clarity for modern entertainment.`,
+    tags: 'samsung,q80d,qled,4k-tv,shopify-ready',
+  };
+}

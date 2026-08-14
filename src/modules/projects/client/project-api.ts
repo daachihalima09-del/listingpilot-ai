@@ -5,36 +5,46 @@ export interface ProjectApiErrorBody {
     code?: string;
     message?: string;
     fieldErrors?: Record<string, string[] | undefined>;
+    details?: unknown;
   };
 }
 
 export class ProjectApiError extends Error {
   readonly status: number;
   readonly code?: string;
+  readonly requestId?: string;
   readonly fieldErrors?: Record<string, string[] | undefined>;
+  readonly details?: unknown;
 
   constructor(
     status: number,
     message: string,
     body?: ProjectApiErrorBody,
+    requestId?: string | null,
   ) {
     super(message);
     this.name = 'ProjectApiError';
     this.status = status;
     this.code = body?.error?.code;
+    this.requestId = requestId ?? undefined;
     this.fieldErrors = body?.error?.fieldErrors;
+    this.details = body?.error?.details;
   }
 }
 
 export async function projectApiRequest<T>(
   url: string,
   options: {
-    method: 'POST' | 'PATCH' | 'DELETE';
-    body: unknown;
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+    body?: unknown;
     timeoutMs?: number;
+    timeoutMessage?: string;
+    signal?: AbortSignal;
   },
 ): Promise<T> {
   const controller = new AbortController();
+  const abortForCaller = () => controller.abort('caller');
+  options.signal?.addEventListener('abort', abortForCaller, { once: true });
   const timeoutId = window.setTimeout(
     () => controller.abort('timeout'),
     options.timeoutMs ?? 45_000,
@@ -43,11 +53,9 @@ export async function projectApiRequest<T>(
   try {
     const response = await fetch(url, {
       method: options.method,
-      headers: {
-        'content-type': 'application/json',
-      },
+      ...(options.body === undefined ? {} : { headers: { 'content-type': 'application/json' } }),
       credentials: 'same-origin',
-      body: JSON.stringify(options.body),
+      ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
       signal: controller.signal,
     });
     const body = response.status === 204
@@ -62,6 +70,7 @@ export async function projectApiRequest<T>(
         response.status,
         errorBody?.error?.message ?? 'The project operation failed.',
         errorBody,
+        response.headers.get('x-listingpilot-generation-request-id'),
       );
     }
 
@@ -70,7 +79,7 @@ export async function projectApiRequest<T>(
     if (controller.signal.reason === 'timeout') {
       throw new ProjectApiError(
         408,
-        'The request timed out. Check your connection and try again.',
+        options.timeoutMessage ?? 'The request timed out. Check your connection and try again.',
       );
     }
     if (error instanceof ProjectApiError) {
@@ -82,5 +91,6 @@ export async function projectApiRequest<T>(
     );
   } finally {
     window.clearTimeout(timeoutId);
+    options.signal?.removeEventListener('abort', abortForCaller);
   }
 }

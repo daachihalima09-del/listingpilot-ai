@@ -56,7 +56,7 @@ const listDataSchema = z.object({
 }).strict();
 
 export interface CatalogImportStatus {
-  status: 'NOT_IMPORTED' | 'IMPORTED' | 'PROJECT_ARCHIVED' | 'LINK_INCONSISTENT';
+  status: 'NOT_IMPORTED' | 'IMPORTED' | 'PROJECT_ARCHIVED' | 'RECOVERABLE_LINK' | 'LINK_INCONSISTENT';
   projectId: string | null;
 }
 
@@ -170,4 +170,3 @@ export async function fetchShopifyCatalogProduct(
     return mapRequestError(error);
   }
 }
-

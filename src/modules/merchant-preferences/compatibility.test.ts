@@ -63,7 +63,7 @@ test('adapts an existing Catalog Profile to schema version 1 without data loss',
   });
 });
 
-test('keeps an existing valid Catalog Profile complete while requiring the new Listing step', () => {
+test('keeps an existing valid Catalog Profile complete while requiring Listing and SEO', () => {
   const section = catalogProfileRecordToPreferenceSection(legacyRecord);
   const profile = createMerchantBusinessProfile({
     id: 'adapted-business-profile',
@@ -83,6 +83,7 @@ test('keeps an existing valid Catalog Profile complete while requiring the new L
   );
   assert.equal(completion.catalogComplete, true);
   assert.equal(completion.listingComplete, false);
+  assert.equal(completion.seoComplete, false);
   assert.equal(completion.completeEnoughToProceed, false);
 });
 
@@ -163,6 +164,8 @@ test('onboarding guards use Business Profile completion and retain existing rout
     /catalogProfileOnboardingPathIfRequired/,
   );
   assert.match(guard, /\/onboarding\/catalog-profile/);
+  assert.match(guard, /\/onboarding\/seo-profile/);
+  assert.match(guard, /completion\.seoComplete/);
 });
 
 test('Shopify catalog import remains a read-only query path', () => {

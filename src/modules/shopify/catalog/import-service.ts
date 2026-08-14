@@ -31,7 +31,12 @@ export async function importShopifyProduct(
     shopifyStoreId: context.shopifyStoreId,
     productGid: input.productId,
   });
-  if (existing) return { ...existing, created: false };
+  if (existing?.state === 'INCONSISTENT_LINK_BLOCKED') {
+    throw new ShopifyCatalogError('LINK_INCONSISTENT', 409, 'We found an existing ListingPilot link that cannot be safely verified. No changes were made.');
+  }
+  if (existing && existing.state !== 'LEGACY_RECOVERABLE_LINK') {
+    return { ...existing, created: false, repaired: false };
+  }
 
   const importedAt = new Date();
   const rawProduct = await fetchShopifyCatalogProduct(
@@ -52,6 +57,23 @@ export async function importShopifyProduct(
     throw new ShopifyCatalogError('IMPORT_FAILED', 500, 'The Shopify product could not be imported.');
   }
 
+  if (existing?.state === 'LEGACY_RECOVERABLE_LINK') {
+    try {
+      const repaired = await dependencies.repository.repairLegacy({
+        actorUserId: context.actorUserId,
+        organizationId: context.organizationId,
+        workspaceId: context.workspaceId,
+        shopifyStoreId: context.shopifyStoreId,
+        snapshot,
+        repairedAt: importedAt,
+      });
+      return { ...repaired, created: false, repaired: true };
+    } catch (error) {
+      if (error instanceof ShopifyCatalogError) throw error;
+      throw new ShopifyCatalogError('LINK_INCONSISTENT', 409, 'We found a legacy ListingPilot link that cannot be repaired safely. No changes were made.');
+    }
+  }
+
   try {
     const project = await dependencies.repository.create({
       actorUserId: context.actorUserId,
@@ -62,15 +84,16 @@ export async function importShopifyProduct(
       snapshot,
       importedAt,
     });
-    return { ...project, created: true };
+    return { ...project, created: true, repaired: false };
   } catch {
     const winner = await dependencies.repository.findExisting({
       workspaceId: context.workspaceId,
       shopifyStoreId: context.shopifyStoreId,
       productGid: input.productId,
     });
-    if (winner) return { ...winner, created: false };
-    throw new ShopifyCatalogError('LINK_INCONSISTENT', 409, 'The Shopify product is already linked inconsistently.');
+    if (winner && winner.state !== 'INCONSISTENT_LINK_BLOCKED' && winner.state !== 'LEGACY_RECOVERABLE_LINK') {
+      return { ...winner, created: false, repaired: false };
+    }
+    throw new ShopifyCatalogError('LINK_INCONSISTENT', 409, 'We found an existing ListingPilot link that cannot be safely verified. No changes were made.');
   }
 }
-

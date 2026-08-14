@@ -7,16 +7,26 @@ import {
   listingStandards,
   type ListingStandardId,
 } from '@/modules/merchant-preferences/listing-standard';
+import {
+  merchantProfileSaveDestination,
+  type MerchantProfileSurface,
+} from '@/modules/settings/business-profile/routes';
 
 export function ListingStandardSelector({
   workspaceId,
   initialVersion,
+  initialStandardId = null,
+  surface = 'onboarding',
+  canManage = true,
 }: {
   workspaceId: string;
   initialVersion: number | null;
+  initialStandardId?: ListingStandardId | null;
+  surface?: MerchantProfileSurface;
+  canManage?: boolean;
 }) {
   const router = useRouter();
-  const [selected, setSelected] = useState<ListingStandardId | null>(null);
+  const [selected, setSelected] = useState<ListingStandardId | null>(initialStandardId);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,14 +38,28 @@ export function ListingStandardSelector({
     setSaving(true);
     setError(null);
     try {
-      const response = await fetch('/api/onboarding/listing-profile', {
+      const response = await fetch(
+        surface === 'settings'
+          ? '/api/settings/business-profile/listing-standard'
+          : '/api/onboarding/listing-profile',
+        {
         method: 'POST',
         headers: { accept: 'application/json', 'content-type': 'application/json' },
-        body: JSON.stringify({ workspaceId, standardId: selected, expectedVersion: initialVersion }),
-      });
+        body: JSON.stringify({
+          workspaceId,
+          standardId: selected,
+          expectedVersion: initialVersion,
+        }),
+        },
+      );
       const body = await response.json() as { error?: { message?: string } };
       if (!response.ok) throw new Error(body.error?.message ?? 'The listing standard could not be saved.');
-      router.push(`/onboarding/listing-profile?${new URLSearchParams({ workspaceId })}`);
+      const destination = merchantProfileSaveDestination({
+        section: 'listing-standard',
+        surface,
+        workspaceId,
+      });
+      router.push(destination);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The listing standard could not be saved.');
     } finally {
@@ -45,6 +69,12 @@ export function ListingStandardSelector({
 
   return (
     <div>
+      {!canManage ? (
+        <p className="mb-5 rounded-xl border border-amber-300/20 bg-amber-300/[0.07] p-4 text-sm text-amber-100">
+          Only the workspace owner can change the Listing Standard.
+        </p>
+      ) : null}
+      <fieldset disabled={!canManage} className="disabled:opacity-75">
       <div className="grid gap-4 md:grid-cols-2">
         {listingStandards.map((standard) => {
           const active = selected === standard.id;
@@ -69,9 +99,10 @@ export function ListingStandardSelector({
       <div className="mt-7 flex justify-end">
         <button type="button" onClick={continueToProfile} disabled={!selected || saving} className="inline-flex items-center gap-2 rounded-xl bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-45">
           {saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-          Continue to Listing Profile
+          {surface === 'settings' ? 'Save and edit Listing Style' : 'Continue to Listing Profile'}
         </button>
       </div>
+      </fieldset>
     </div>
   );
 }

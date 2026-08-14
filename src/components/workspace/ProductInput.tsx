@@ -23,12 +23,13 @@ interface ProductInputProps {
   onLoadDemoProduct: () => void;
   inputError: string | null;
   readOnly?: boolean;
+  entryMode?: boolean;
 }
 
 const modes = [
-  { key: 'url' as const, label: 'Supplier URL' },
   { key: 'product' as const, label: 'Product URL' },
   { key: 'specs' as const, label: 'Raw Specifications' },
+  { key: 'url' as const, label: 'Supplier URL' },
   { key: 'pdf' as const, label: 'Upload PDF' },
 ];
 
@@ -61,6 +62,7 @@ export function ProductInput({
   onLoadDemoProduct,
   inputError,
   readOnly = false,
+  entryMode = false,
 }: ProductInputProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const controlsDisabled = isRunning || readOnly;
@@ -89,7 +91,7 @@ export function ProductInput({
   };
 
   return (
-    <section className="relative overflow-hidden rounded-[2rem] border border-amber-400/20 bg-[#0b1728] p-5 shadow-soft sm:p-8">
+    <section aria-labelledby={entryMode ? 'project-entry-title' : undefined} className="relative max-w-full overflow-hidden rounded-[2rem] border border-amber-400/20 bg-[#0b1728] p-5 shadow-soft sm:p-8">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,199,76,0.16),transparent_40%)]" />
       <div className="relative">
         <div className="flex flex-wrap items-center gap-2">
@@ -99,6 +101,7 @@ export function ProductInput({
               type="button"
               onClick={() => onModeChange(mode.key)}
               disabled={controlsDisabled}
+              aria-pressed={inputMode === mode.key}
               className={`rounded-full px-3 py-2 text-sm transition ${
                 inputMode === mode.key ? 'bg-amber-400/15 text-amber-200' : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-slate-200'
               } disabled:cursor-not-allowed disabled:opacity-50`}
@@ -108,16 +111,18 @@ export function ProductInput({
           ))}
         </div>
 
-        <h1 className="mt-6 text-3xl font-semibold leading-tight sm:text-4xl">
-          AI Product Intelligence Workspace
+        <h1 id={entryMode ? 'project-entry-title' : undefined} className="mt-6 text-3xl font-semibold leading-tight sm:text-4xl">
+          {entryMode ? 'Create your product listing' : 'AI Product Intelligence Workspace'}
         </h1>
         <p className="mt-3 max-w-2xl text-base leading-7 text-slate-300">
-          Prepare. Verify. Optimize. Publish. The workspace creates verified Shopify product catalogs using AI-powered intelligence and truth verification.
+          {entryMode
+            ? 'Add a product to begin. Choose a source, then analyze it before entering the listing workspace.'
+            : 'Prepare. Verify. Optimize. Publish. The workspace creates verified Shopify product catalogs using AI-powered intelligence and truth verification.'}
         </p>
         {inputMode === 'pdf' ? (
           <div className="mt-4 inline-flex flex-wrap items-center gap-2 rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1.5 text-xs text-amber-100">
-            <span className="font-semibold uppercase tracking-[0.14em] text-amber-300">Demo Mode</span>
-            <span className="text-slate-300">Live PDF extraction coming soon</span>
+            <span className="font-semibold uppercase tracking-[0.14em] text-amber-300">Not available yet</span>
+            <span className="text-slate-300">Use a URL or raw specifications for live analysis</span>
           </div>
         ) : inputMode === 'url' || inputMode === 'product' ? (
           <div className="mt-4 inline-flex flex-wrap items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-100">
@@ -173,7 +178,7 @@ export function ProductInput({
                 <button type="button" onClick={handlePdfClick} disabled={controlsDisabled} className="flex w-full items-center gap-2 text-left disabled:cursor-not-allowed disabled:opacity-50">
                   <UploadCloud className="h-4 w-4 text-amber-300" />
                   <span className="flex-1">Choose a PDF file</span>
-                  <span className="text-slate-500">Stored locally for this demo</span>
+                  <span className="text-slate-500">Selected locally; analysis is unavailable</span>
                 </button>
               )}
             </div>

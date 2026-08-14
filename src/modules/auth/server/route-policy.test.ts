@@ -39,6 +39,13 @@ test('merchant application and product-analysis routes are protected', () => {
   '/api/projects/11111111-1111-4111-8111-111111111111/shopify-variants',
   '/api/projects/11111111-1111-4111-8111-111111111111/shopify-variants/publish',
     '/settings/shopify',
+    '/settings/business-profile/catalog',
+    '/settings/business-profile/listing-standard',
+    '/settings/business-profile/listing',
+    '/settings/business-profile/seo',
+    '/settings/business-profile/publishing',
+    '/settings/business-profile/ai',
+    '/settings/business-profile/listing/calibration',
   ]) {
     assert.deepEqual(
       getRouteAccessDecision(route, false),

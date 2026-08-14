@@ -68,6 +68,10 @@ export function useProjectAutosave({
   const lastSavedHash = useRef(initialHash.current);
   const version = useRef(project?.version ?? 0);
   const queuedSave = useRef<SaveQueueItem | null>(null);
+  const flushWaiters = useRef<Array<{
+    hash: string;
+    resolve: (version: number | null) => void;
+  }>>([]);
   const processing = useRef(false);
   const blockedByConflict = useRef(false);
   const mounted = useRef(true);
@@ -77,6 +81,7 @@ export function useProjectAutosave({
   const [message, setMessage] = useState(
     project && !enabled ? 'Read only' : project ? 'Saved' : 'Not saved',
   );
+  const [currentVersion, setCurrentVersion] = useState(project?.version ?? 0);
 
   useEffect(() => {
     return () => {
@@ -115,6 +120,7 @@ export function useProjectAutosave({
           },
         );
         version.current = response.project.version;
+        setCurrentVersion(response.project.version);
         lastSavedHash.current = item.hash;
         if (mounted.current) {
           setStatus('saved');
@@ -138,6 +144,15 @@ export function useProjectAutosave({
       }
     }
     processing.current = false;
+    const waiters = flushWaiters.current;
+    flushWaiters.current = [];
+    for (const waiter of waiters) {
+      waiter.resolve(
+        !blockedByConflict.current && waiter.hash === lastSavedHash.current
+          ? version.current
+          : null,
+      );
+    }
   }, [enabled, project]);
 
   const enqueueSave = useCallback((nextSnapshot: ProjectSaveSnapshot) => {
@@ -182,13 +197,39 @@ export function useProjectAutosave({
     return () => window.clearTimeout(timer);
   }, [enabled, enqueueSave, project, snapshot]);
 
-  const saveNow = useCallback(() => {
-    enqueueSave(snapshot);
-  }, [enqueueSave, snapshot]);
+  const saveNow = useCallback((): Promise<number | null> => {
+    const hash = JSON.stringify(snapshot);
+    if (!project || !enabled || blockedByConflict.current) {
+      return Promise.resolve(null);
+    }
+    if (hash === lastSavedHash.current) {
+      return Promise.resolve(version.current);
+    }
+    return new Promise((resolve) => {
+      flushWaiters.current.push({ hash, resolve });
+      enqueueSave(snapshot);
+    });
+  }, [enabled, enqueueSave, project, snapshot]);
+
+  const adoptExternalSave = useCallback((nextVersion: number, savedSnapshot: ProjectSaveSnapshot) => {
+    const savedHash = JSON.stringify(savedSnapshot);
+    version.current = nextVersion;
+    setCurrentVersion(nextVersion);
+    lastSavedHash.current = savedHash;
+    queuedSave.current = null;
+    const waiters = flushWaiters.current;
+    flushWaiters.current = [];
+    for (const waiter of waiters) waiter.resolve(nextVersion);
+    blockedByConflict.current = false;
+    setStatus('saved');
+    setMessage('Saved');
+  }, []);
 
   return {
     status,
     message,
     saveNow,
+    currentVersion,
+    adoptExternalSave,
   };
 }

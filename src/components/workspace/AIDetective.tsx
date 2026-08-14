@@ -23,19 +23,15 @@ export function AIDetective({
   readOnly = false,
 }: AIDetectiveProps) {
   const conflictConfidence = product.truthRows.find((row) => row.field === product.conflict.label)?.confidence ?? recommendationConfidence;
-  const isSamsungDemo = product.brand === 'Samsung' && product.model === 'Q80D';
   const noConflict = !hasConflict && !conflictResolved;
-  const sources = isSamsungDemo
-    ? [
-        { label: 'Samsung Official', value: '120Hz • 98%' },
-        { label: 'Amazon Listing', value: '144Hz • 71%' },
-        { label: 'LG Official', value: '120Hz • 94%' },
-      ]
-    : [
-        { label: 'Specification A', value: `${product.conflict.official} • ${conflictConfidence}%` },
-        { label: 'Specification B', value: `${product.conflict.amazon} • ${conflictConfidence}%` },
-        { label: 'Recommended value', value: `${product.conflict.lg} • ${recommendationConfidence}%` },
-      ];
+  const sources = [
+    { label: 'Observed value A', value: product.conflict.official, confidence: conflictConfidence },
+    { label: 'Observed value B', value: product.conflict.amazon, confidence: conflictConfidence },
+    { label: 'Recommended value', value: product.conflict.lg, confidence: recommendationConfidence },
+  ].filter(({ value }) => value.trim()).map(({ label, value, confidence }) => ({
+    label,
+    value: `${value} • ${confidence}%`,
+  }));
 
   return (
     <section className={`rounded-[1.75rem] border p-5 ${conflictResolved || noConflict ? 'border-emerald-400/20 bg-[#09130e]' : 'border-rose-400/20 bg-[#140d13]'}`}>

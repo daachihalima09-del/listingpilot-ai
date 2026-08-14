@@ -96,9 +96,9 @@ test('invalid stored payloads fall back safely without inventing merchant values
   assert.equal(effective.catalog.complete, false);
 });
 
-test('completion requires Catalog and Listing sections in the onboarding sequence', () => {
+test('completion requires all five Merchant Business Profile sections in onboarding order', () => {
   const incomplete = evaluateMerchantBusinessProfileCompletion(null, registry);
-  assert.deepEqual(incomplete.incompleteRequiredSections, ['catalog', 'listing']);
+  assert.deepEqual(incomplete.incompleteRequiredSections, ['catalog', 'listing', 'seo', 'publishing', 'ai']);
   assert.equal(incomplete.nextRequiredSection, 'catalog');
   assert.equal(incomplete.canCreateProject, false);
   assert.equal(incomplete.canPublishSafely, false);
@@ -153,7 +153,7 @@ test('in-progress, review-required and invalid Catalog states remain explicit', 
   }
 });
 
-test('future reserved sections do not block the current Business Profile beyond Listing', () => {
+test('the active Publishing and AI sections participate in Business Profile completion', () => {
   const completion = evaluateMerchantBusinessProfileCompletion(
     createMerchantBusinessProfile(
       businessProfileRecordFixture(),
@@ -161,6 +161,6 @@ test('future reserved sections do not block the current Business Profile beyond 
     ),
     registry,
   );
-  assert.deepEqual(completion.incompleteRequiredSections, ['listing']);
+  assert.deepEqual(completion.incompleteRequiredSections, ['listing', 'seo', 'publishing', 'ai']);
   assert.equal(completion.completeEnoughToProceed, false);
 });

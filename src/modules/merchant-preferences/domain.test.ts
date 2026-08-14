@@ -14,13 +14,13 @@ import {
   catalogSectionRecordFixture,
 } from './test-fixtures.ts';
 
-test('creates an immutable Business Profile with active Catalog and Listing sections', () => {
+test('creates an immutable Business Profile with all five active sections', () => {
   const profile = createMerchantBusinessProfile(
     businessProfileRecordFixture(),
     createMerchantPreferenceRegistry(),
   );
   assert.equal(profile.workspaceId, 'workspace-1');
-  assert.deepEqual(profile.activeSectionIds, ['catalog', 'listing']);
+  assert.deepEqual(profile.activeSectionIds, ['catalog', 'listing', 'seo', 'publishing', 'ai']);
   assert.equal(findMerchantPreferenceSection(profile, 'catalog')?.status, 'COMPLETE');
   assert.equal(Object.isFrozen(profile), true);
   assert.equal(Object.isFrozen(profile.sections), true);
@@ -30,13 +30,9 @@ test('creates an immutable Business Profile with active Catalog and Listing sect
   }, TypeError);
 });
 
-test('reserves future stable section identities without activating them', () => {
-  assert.deepEqual(activeMerchantPreferenceSectionIds, ['catalog', 'listing']);
-  assert.deepEqual(reservedMerchantPreferenceSectionIds, [
-    'seo',
-    'publishing',
-    'ai',
-  ]);
+test('activates Publishing and AI in the established profile order', () => {
+  assert.deepEqual(activeMerchantPreferenceSectionIds, ['catalog', 'listing', 'seo', 'publishing', 'ai']);
+  assert.deepEqual(reservedMerchantPreferenceSectionIds, []);
 });
 
 test('Business Profile fingerprints ignore timestamps and stored fingerprint fields', () => {

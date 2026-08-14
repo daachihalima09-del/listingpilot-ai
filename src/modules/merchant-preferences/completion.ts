@@ -14,6 +14,9 @@ export interface MerchantBusinessProfileCompletion {
   readonly catalogComplete: boolean;
   readonly listingStandardSelected: boolean;
   readonly listingComplete: boolean;
+  readonly seoComplete: boolean;
+  readonly publishingComplete: boolean;
+  readonly aiComplete: boolean;
   readonly canCreateProject: boolean;
   readonly canPublishSafely: boolean;
 }
@@ -46,10 +49,13 @@ export function evaluateMerchantBusinessProfileCompletion(
     }
     const definition = registry.get(sectionId);
     const completion = definition.completionEvaluator(section.data);
+    const onboardingCompletionPreserved = (
+      section.metadata.onboardingCompletionPreserved === true
+    );
     if (
       section.status !== 'COMPLETE'
       || section.validationStatus !== 'VALID'
-      || !completion.complete
+      || (!onboardingCompletionPreserved && !completion.complete)
     ) {
       incomplete.push(sectionId);
     }
@@ -71,6 +77,15 @@ export function evaluateMerchantBusinessProfileCompletion(
   const listingComplete = !incomplete.includes('listing')
     && !review.includes('listing')
     && !invalid.includes('listing');
+  const seoComplete = !incomplete.includes('seo')
+    && !review.includes('seo')
+    && !invalid.includes('seo');
+  const publishingComplete = !incomplete.includes('publishing')
+    && !review.includes('publishing')
+    && !invalid.includes('publishing');
+  const aiComplete = !incomplete.includes('ai')
+    && !review.includes('ai')
+    && !invalid.includes('ai');
   return Object.freeze({
     status: invalid.length
       ? 'INVALID'
@@ -87,7 +102,10 @@ export function evaluateMerchantBusinessProfileCompletion(
     catalogComplete,
     listingStandardSelected,
     listingComplete,
-    canCreateProject: catalogComplete && listingComplete,
-    canPublishSafely: catalogComplete && listingComplete,
+    seoComplete,
+    publishingComplete,
+    aiComplete,
+    canCreateProject: catalogComplete && listingComplete && seoComplete && publishingComplete && aiComplete,
+    canPublishSafely: catalogComplete && listingComplete && seoComplete && publishingComplete && aiComplete,
   });
 }

@@ -1,6 +1,17 @@
 import { notFound } from 'next/navigation';
 import { ZodError } from 'zod';
 import { ListingWorkspace } from '@/components/workspace/ListingWorkspace';
+import { createServerMerchantPreferenceService } from '@/modules/merchant-preferences/composition.server';
+import {
+  createMerchantPreferenceRegistry,
+  resolveEffectiveMerchantPreferences,
+} from '@/modules/merchant-preferences';
+import { getListingStandard } from '@/modules/merchant-preferences/listing-standard';
+import {
+  canonicalGenerationEligibility,
+  createProjectListingGenerationPlan,
+  type CanonicalGenerationEligibility,
+} from '@/modules/listing-generation';
 import { requireAuthenticatedUser } from '@/modules/auth/server/context';
 import { getProjectPageTenantContext } from '@/modules/projects/server/project-page-context';
 import { getUserProject } from '@/modules/projects/server/project-operations';
@@ -56,6 +67,7 @@ export default async function ProjectWorkspacePage({
       projectId,
     });
     const configured = hasValidShopifyConfig();
+    const merchantPreferences = createServerMerchantPreferenceService();
     const [
       connection,
       publication,
@@ -63,6 +75,7 @@ export default async function ProjectWorkspacePage({
       metafieldConfiguration,
       imageConfiguration,
       publicationCoordinator,
+      businessProfile,
     ] = await Promise.all([
       getShopifyConnectionStatus(
         configured
@@ -84,14 +97,44 @@ export default async function ProjectWorkspacePage({
       getUserShopifyMetafields(user.id, project.id),
       getUserShopifyImages(user.id, project.id),
       getUserPublicationCoordinator(user.id, project.id),
+      merchantPreferences.getProfile(tenant.workspace.id),
     ]);
+    const effectivePreferences = resolveEffectiveMerchantPreferences(
+      tenant.workspace.id,
+      businessProfile,
+      createMerchantPreferenceRegistry(),
+    );
     const connected = (
       connection.status === 'CONNECTED'
       || connection.status === 'ACTIVE'
     );
+    const generationEligibility: CanonicalGenerationEligibility | null = !project.analysisData
+      ? null
+      : businessProfile
+        ? canonicalGenerationEligibility(createProjectListingGenerationPlan({
+          project,
+          effectivePreferences,
+          businessProfile,
+        }))
+        : {
+          canGenerate: false,
+          status: 'INVALID_CONFIGURATION',
+          blockingFindings: [{
+            id: 'blocker:INVALID_MERCHANT_PROFILE',
+            kind: 'BLOCKING',
+            code: 'INVALID_MERCHANT_PROFILE',
+            title: 'Merchant profile is incomplete',
+            explanation: 'Complete the merchant profile before generating a listing draft.',
+            fieldIds: [],
+            resolutionArea: 'MERCHANT_PROFILE',
+          }],
+          warnings: [],
+          informationalFindings: [],
+          };
 
     return (
       <ListingWorkspace
+        key={project.id}
         initialProject={{
           id: project.id,
           organizationId: tenant.organization.id,
@@ -109,6 +152,13 @@ export default async function ProjectWorkspacePage({
           readinessData: project.readinessData,
         }}
         canManage={tenant.role === 'OWNER'}
+        listingStyle={{
+          standardId: effectivePreferences.listing.standardId,
+          standardName: getListingStandard(effectivePreferences.listing.standardId).name,
+          fingerprint: effectivePreferences.listing.fingerprint,
+        }}
+        generationEligibility={generationEligibility}
+        generationEligibilityVersion={project.version}
         shopifyPublishing={{
           configured,
           connected,

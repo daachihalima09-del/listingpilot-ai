@@ -18,7 +18,7 @@ export async function resolveMerchantListingProfileAccess(
       throw new MerchantPreferenceError(
         'WORKSPACE_FORBIDDEN',
         403,
-        'Only the workspace owner can configure the Listing Profile.',
+        'Only the workspace owner can configure merchant profile preferences.',
       );
     }
     return {

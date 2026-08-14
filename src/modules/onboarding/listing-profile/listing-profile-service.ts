@@ -35,13 +35,18 @@ export async function selectListingStandard(
   access: MerchantPreferenceAccess,
   standardId: ListingPreferenceData['standardId'],
   expectedVersion: number | null,
+  mutationSurface: 'onboarding' | 'settings' = 'onboarding',
 ) {
-  return createServerMerchantPreferenceService().saveSection(access, {
+  const service = createServerMerchantPreferenceService();
+  const save = mutationSurface === 'settings'
+    ? service.savePermanentSection
+    : service.saveSection;
+  return save(access, {
     workspaceId: access.workspaceId,
     sectionId: 'listing',
     schemaVersion: LISTING_PREFERENCE_SCHEMA_VERSION,
     expectedVersion,
-    source: 'MANUAL',
+    source: mutationSurface === 'settings' ? 'MERCHANT_EDIT' : 'MANUAL',
     payload: createListingProfileForStandard(standardId),
   });
 }

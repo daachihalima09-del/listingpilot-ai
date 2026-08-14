@@ -8,13 +8,9 @@ export const merchantPreferenceSectionIds = [
   'ai',
 ] as const;
 
-export const activeMerchantPreferenceSectionIds = ['catalog', 'listing'] as const;
+export const activeMerchantPreferenceSectionIds = ['catalog', 'listing', 'seo', 'publishing', 'ai'] as const;
 
-export const reservedMerchantPreferenceSectionIds = [
-  'seo',
-  'publishing',
-  'ai',
-] as const;
+export const reservedMerchantPreferenceSectionIds = [] as const;
 
 export const merchantPreferenceSectionIdSchema = z.enum(
   merchantPreferenceSectionIds,

@@ -8,6 +8,7 @@ import { decodeShopifyProductReference } from '@/modules/shopify/catalog/catalog
 import { normalizeShopifyProductSnapshot, stripExternalHtml } from '@/modules/shopify/catalog/snapshot';
 import { ShopifyCatalogImportButton } from '@/modules/shopify/components/ShopifyCatalogImportButton';
 import { getShopifyConfig } from '@/modules/shopify/config';
+import { prismaCatalogLinkStore } from '@/modules/shopify/repositories/prisma-catalog-link-store';
 
 export default async function ShopifyProductPreview({
   params,
@@ -27,11 +28,21 @@ export default async function ShopifyProductPreview({
   }, productId);
   const snapshot = normalizeShopifyProductSnapshot(raw, getShopifyConfig().apiVersion);
   const product = snapshot.product;
+  const importStatus = (await prismaCatalogLinkStore.findMany(context.workspace.id, [product.id])).get(product.id) ?? { status: 'NOT_IMPORTED' as const, projectId: null };
+  const action = importStatus.status === 'IMPORTED' && importStatus.projectId
+    ? <Link className="rounded-lg bg-emerald-400 px-3 py-2 font-semibold text-slate-950" href={`/workspace/${importStatus.projectId}`}>Open Project</Link>
+    : importStatus.status === 'PROJECT_ARCHIVED'
+      ? <Link className="rounded-lg border border-amber-300/20 px-3 py-2 text-amber-100" href="/projects?archived=true">View Archived Project</Link>
+      : importStatus.status === 'RECOVERABLE_LINK'
+        ? <ShopifyCatalogImportButton productId={product.id} label="Verify & Open Project" />
+        : importStatus.status === 'LINK_INCONSISTENT'
+          ? <p className="max-w-64 text-sm text-rose-200">The existing ListingPilot link could not be safely verified. No changes were made.</p>
+          : <ShopifyCatalogImportButton productId={product.id} />;
   return (
     <article className="mx-auto max-w-4xl">
       <Link href="/catalog/shopify" className="text-sm text-amber-200 hover:underline">← Shopify Catalog</Link>
       <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.03] p-6">
-        <div className="flex flex-wrap justify-between gap-4"><div><p className="text-xs uppercase tracking-wider text-slate-500">{product.status}</p><h1 className="mt-2 text-3xl font-semibold">{product.title}</h1><p className="mt-2 text-slate-400">{product.vendor} · {product.productType}</p></div><ShopifyCatalogImportButton productId={product.id} /></div>
+        <div className="flex flex-wrap justify-between gap-4"><div><p className="text-xs uppercase tracking-wider text-slate-500">{product.status}</p><h1 className="mt-2 text-3xl font-semibold">{product.title}</h1><p className="mt-2 text-slate-400">{product.vendor} · {product.productType}</p></div>{action}</div>
         <p className="mt-6 whitespace-pre-wrap leading-7 text-slate-300">{stripExternalHtml(product.descriptionHtml) || 'No description.'}</p>
         <dl className="mt-7 grid gap-4 sm:grid-cols-3"><div><dt className="text-xs text-slate-500">Variants</dt><dd>{product.variants.length}</dd></div><div><dt className="text-xs text-slate-500">Media</dt><dd>{product.media.length}</dd></div><div><dt className="text-xs text-slate-500">Updated</dt><dd>{new Date(product.updatedAt).toLocaleDateString('en-US', { timeZone: 'UTC' })}</dd></div></dl>
         <h2 className="mt-8 text-xl font-semibold">Variants</h2>
@@ -41,4 +52,3 @@ export default async function ShopifyProductPreview({
     </article>
   );
 }
-

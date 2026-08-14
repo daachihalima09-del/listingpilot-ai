@@ -45,6 +45,15 @@ export function merchantPreferenceSectionRoute(
   if (sectionId === 'listing') {
     return `/onboarding/listing-standard?${new URLSearchParams({ workspaceId })}`;
   }
+  if (sectionId === 'seo') {
+    return `/onboarding/seo-profile?${new URLSearchParams({ workspaceId })}`;
+  }
+  if (sectionId === 'publishing') {
+    return `/onboarding/publishing-profile?${new URLSearchParams({ workspaceId })}`;
+  }
+  if (sectionId === 'ai') {
+    return `/onboarding/ai-profile?${new URLSearchParams({ workspaceId })}`;
+  }
   return null;
 }
 
@@ -54,6 +63,6 @@ export function merchantPreferenceAccessModel(
   return Object.freeze({
     canView: true,
     canEdit: role === 'OWNER',
-    activeRoutes: Object.freeze(['catalog', 'listing'] as const),
+    activeRoutes: Object.freeze(['catalog', 'listing', 'seo', 'publishing', 'ai'] as const),
   });
 }

@@ -20,6 +20,10 @@ export const catalogImportInputSchema = z.object({
   productId: shopifyProductGidSchema,
 }).strict();
 
+export function legacyProductIdFromGid(gid: string): string {
+  return shopifyProductGidSchema.parse(gid).slice('gid://shopify/Product/'.length);
+}
+
 export function encodeShopifyProductReference(gid: string): string {
   return Buffer.from(shopifyProductGidSchema.parse(gid)).toString('base64url');
 }
@@ -32,4 +36,3 @@ export function decodeShopifyProductReference(reference: string): string {
     Buffer.from(reference, 'base64url').toString('utf8'),
   );
 }
-

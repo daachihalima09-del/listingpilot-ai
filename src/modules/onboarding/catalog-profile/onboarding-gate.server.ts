@@ -15,6 +15,18 @@ export function merchantListingProfilePath(workspaceId: string): string {
   return `/onboarding/listing-profile?${new URLSearchParams({ workspaceId })}`;
 }
 
+export function merchantSeoProfilePath(workspaceId: string): string {
+  return `/onboarding/seo-profile?${new URLSearchParams({ workspaceId })}`;
+}
+
+export function merchantPublishingProfilePath(workspaceId: string): string {
+  return `/onboarding/publishing-profile?${new URLSearchParams({ workspaceId })}`;
+}
+
+export function merchantAiProfilePath(workspaceId: string): string {
+  return `/onboarding/ai-profile?${new URLSearchParams({ workspaceId })}`;
+}
+
 export async function returnPathAfterShopifyConnection(
   workspaceId: string,
   completedProfileReturnPath: string,
@@ -23,9 +35,10 @@ export async function returnPathAfterShopifyConnection(
     .getCompletion(workspaceId);
   if (!completion.catalogComplete) return merchantCatalogProfilePath(workspaceId);
   if (!completion.listingStandardSelected) return merchantListingStandardPath(workspaceId);
-  return completion.listingComplete
-    ? completedProfileReturnPath
-    : merchantListingProfilePath(workspaceId);
+  if (!completion.listingComplete) return merchantListingProfilePath(workspaceId);
+  if (!completion.seoComplete) return merchantSeoProfilePath(workspaceId);
+  if (!completion.publishingComplete) return merchantPublishingProfilePath(workspaceId);
+  return completion.aiComplete ? completedProfileReturnPath : merchantAiProfilePath(workspaceId);
 }
 
 export async function catalogProfileOnboardingPathIfRequired(
@@ -66,11 +79,13 @@ export async function merchantBusinessProfileOnboardingPathIfRequired(
     && ['CONNECTED', 'ACTIVE'].includes(store.status)
     && store.accessTokenEncrypted,
   );
-  if (!connected || completion.catalogComplete && completion.listingComplete) {
+  if (!connected || completion.catalogComplete && completion.listingComplete && completion.seoComplete && completion.publishingComplete && completion.aiComplete) {
     return null;
   }
   if (!completion.catalogComplete) return merchantCatalogProfilePath(workspaceId);
-  return completion.listingStandardSelected
-    ? merchantListingProfilePath(workspaceId)
-    : merchantListingStandardPath(workspaceId);
+  if (!completion.listingStandardSelected) return merchantListingStandardPath(workspaceId);
+  if (!completion.listingComplete) return merchantListingProfilePath(workspaceId);
+  if (!completion.seoComplete) return merchantSeoProfilePath(workspaceId);
+  if (!completion.publishingComplete) return merchantPublishingProfilePath(workspaceId);
+  return merchantAiProfilePath(workspaceId);
 }

@@ -5,6 +5,7 @@ import {
   type ComparableValues,
 } from './review-normalization.ts';
 import type { ShopifyChangeReviewPayload } from './review-types.ts';
+import { assembleShopifyListing, isShopifyListingSource } from '../content/shopify-description.ts';
 
 function localComparable(
   baseline: ShopifyProductSnapshot,
@@ -47,10 +48,42 @@ function localComparable(
   const values = comparableSnapshot(baseline);
   if (project.generatedListing && typeof project.generatedListing === 'object') {
     const listing = project.generatedListing as Record<string, unknown>;
-    if (typeof listing.title === 'string') values.get('product.title')!.value = listing.title;
-    if (typeof listing.description === 'string') {
-      values.get('product.descriptionHtml')!.value = listing.description.replace(/\r\n?/g, '\n');
-    }
+    const draft = (
+      listing.listingDraft && typeof listing.listingDraft === 'object'
+        ? listing.listingDraft
+        : listing
+    ) as Record<string, unknown>;
+    const text = (value: unknown): string | null => {
+      if (typeof value === 'string') return value;
+      if (value && typeof value === 'object' && typeof (value as { value?: unknown }).value === 'string') {
+        return (value as { value: string }).value;
+      }
+      return null;
+    };
+    const title = text(draft.title);
+    if (title !== null) values.get('product.title')!.value = title;
+    const assembledDescription = isShopifyListingSource(draft)
+      ? assembleShopifyListing(draft).descriptionHtml
+      : null;
+    const overview = assembledDescription
+      ?? text(draft.overview)
+      ?? (typeof listing.description === 'string' ? listing.description : null);
+    if (overview !== null) values.get('product.descriptionHtml')!.value = overview.replace(/\r\n?/g, '\n');
+    const catalog = draft.catalog && typeof draft.catalog === 'object' ? draft.catalog as Record<string, unknown> : null;
+    const vendor = text(catalog?.vendor);
+    const productType = text(catalog?.productType);
+    const tags = Array.isArray(catalog?.tags) ? catalog.tags.map(text).filter((value): value is string => value !== null) : null;
+    if (vendor !== null) values.get('product.vendor')!.value = vendor;
+    if (productType !== null) values.get('product.productType')!.value = productType;
+    if (tags) values.get('product.tags')!.value = [...new Map([
+      ...baseline.product.tags,
+      ...tags,
+    ].map((tag) => [tag.trim().toLocaleLowerCase('en-US'), tag.trim()])).values()].filter(Boolean).sort();
+    const seo = draft.seo && typeof draft.seo === 'object' ? draft.seo as Record<string, unknown> : null;
+    const seoTitle = text(seo?.title);
+    const seoDescription = text(seo?.description);
+    if (seoTitle !== null) values.get('product.seo.title')!.value = seoTitle;
+    if (seoDescription !== null) values.get('product.seo.description')!.value = seoDescription;
   }
   if (project.seoData && typeof project.seoData === 'object') {
     const seo = project.seoData as Record<string, unknown>;

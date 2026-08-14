@@ -77,7 +77,7 @@ test('registers every built-in Listing Standard with stable identities', () => {
 test('implements the NEOVIX specification-first defaults', () => {
   const data = createListingProfileForStandard('NEOVIX');
   assert.deepEqual(data.rules?.title.fieldOrder, [
-    'BRAND', 'PRODUCT_TYPE', 'SIZE_OR_CAPACITY', 'TECHNOLOGY', 'MODEL',
+    'BRAND', 'MODEL', 'PRODUCT_TYPE', 'SIZE_OR_CAPACITY', 'TECHNOLOGY',
   ]);
   assert.equal(data.rules?.title.characterLimit, 140);
   assert.equal(data.rules?.description.structure, 'SPECIFICATIONS_FIRST');
@@ -154,7 +154,7 @@ test('resolves platform defaults, selected standard and merchant customizations 
   assert.match(effective.listing.sourceExplanation, /selected Listing Standard/);
 });
 
-test('completion tracks Listing separately from Catalog and future reserved sections', () => {
+test('completion tracks Listing separately from the other active sections', () => {
   const registry = createMerchantPreferenceRegistry();
   const selected = createListingProfileForStandard('NEOVIX');
   const completion = evaluateMerchantBusinessProfileCompletion(

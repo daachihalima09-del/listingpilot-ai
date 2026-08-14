@@ -25,6 +25,8 @@ import {
   createDefaultProductTruthResolutionStrategyRegistry,
   type ProductTruthResolutionStrategyRegistry,
 } from './resolution.ts';
+import { defaultProductIntelligenceRegistry } from '../../product-intelligence/registry/default-registry.ts';
+import type { ProductIntelligenceRegistry } from '../../product-intelligence/registry/product-intelligence-registry.ts';
 
 export interface ProductTruthBundle {
   readonly configuration: ProductTruthConfiguration;
@@ -44,6 +46,7 @@ export function createProductTruthBundle(input: {
   readonly extractorRegistry?: ProductTruthClaimExtractorRegistry;
   readonly resolutionStrategyRegistry?: ProductTruthResolutionStrategyRegistry;
   readonly comparisonStrategy?: TruthValueComparisonStrategy;
+  readonly productIntelligenceRegistry?: ProductIntelligenceRegistry;
 }): ProductTruthBundle {
   const configuration = createProductTruthConfiguration(input.configuration);
   const extractorRegistry = input.extractorRegistry
@@ -62,6 +65,8 @@ export function createProductTruthBundle(input: {
     confidenceStrategy,
     comparisonStrategy,
     hasher: input.hasher,
+    productIntelligenceRegistry: input.productIntelligenceRegistry
+      ?? defaultProductIntelligenceRegistry,
   });
   return Object.freeze({
     configuration,
