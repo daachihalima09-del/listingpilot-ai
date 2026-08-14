@@ -42,6 +42,9 @@ test('one primary CTA is derived from workflow state and legacy tools stay colla
   for (const label of ['Analyze Product', 'Generate Listing', 'Review Listing', 'Prepare for Shopify']) assert.match(source, new RegExp(label));
   assert.match(source, /Open technical and legacy tools/);
   assert.doesNotMatch(source, /<details[^>]+open/);
+  assert.match(source, /publishingReviewComplete/);
+  assert.match(source, /onOpenListing=\{\(\) => selectWorkspaceTab\('LISTING'\)\}/);
+  assert.match(source, /onOpenAdvanced=\{\(\) => selectWorkspaceTab\('ADVANCED'\)\}/);
 });
 
 test('mobile navigation contains overflow protection and cards stack before wide breakpoints', () => {

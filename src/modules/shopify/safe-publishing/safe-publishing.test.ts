@@ -85,4 +85,8 @@ test('safe publishing source has no inventory or collection mutations and no cre
   assert.match(client, /Inventory is managed separately and will not be changed/u);
   assert.match(client, /role="dialog"/u);
   assert.doesNotMatch(client, /window\.confirm/u);
+  assert.match(client, /Choose a Shopify destination/u);
+  assert.match(client, /Create New Product/u);
+  assert.match(client, /Link Existing Product/u);
+  assert.match(client, /it does not change Shopify/u);
 });

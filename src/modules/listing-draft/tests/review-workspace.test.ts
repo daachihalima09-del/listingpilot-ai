@@ -167,6 +167,7 @@ test('review workspace delegates navigation to top-level tabs without losing rev
     "view === 'LISTING'", "view === 'REVIEW'", "view === 'ADVANCED'",
     'role="dialog"', "event.key === 'Escape'", 'Merchant Review Workspace',
     'Listing Review', 'Why?', 'Save Draft', 'Product Truth', 'Listing Craft', 'Publishing Constraints',
+    'Shopify approval readiness', 'Approve and save draft', 'Review SEO and catalog',
   ]) assert.ok(source.includes(required), `missing review behavior: ${required}`);
   for (const removed of ['window.localStorage', 'role="tablist"', 'Draft review sections']) {
     assert.equal(source.includes(removed), false, `redundant nested navigation remains: ${removed}`);

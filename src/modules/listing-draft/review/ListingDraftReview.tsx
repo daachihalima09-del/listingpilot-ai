@@ -27,6 +27,8 @@ interface ListingDraftReviewProps {
   readonly onAddToGoldLibrary?: () => void;
   readonly addingToGoldLibrary?: boolean;
   readonly view: DraftReviewTab;
+  readonly onOpenListing?: () => void;
+  readonly onOpenAdvanced?: () => void;
 }
 const inputClass = 'mt-2 w-full rounded-xl border border-white/10 bg-[#07111f] px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-amber-300/50 disabled:cursor-not-allowed disabled:opacity-60';
 
@@ -82,11 +84,15 @@ export function ListingDraftReview({
   onAddToGoldLibrary,
   addingToGoldLibrary = false,
   view,
+  onOpenListing,
+  onOpenAdvanced,
 }: ListingDraftReviewProps) {
   const [traceField, setTraceField] = useState<string | null>(null);
   const closeTraceRef = useRef<HTMLButtonElement>(null);
   const workspace = useMemo(() => reviewWorkspaceForDraft(draft), [draft]);
   const progress = listingReviewProgress(workspace.reviewedSections);
+  const requiredPublishingSections: readonly DraftReviewSection[] = ['TITLE', 'OVERVIEW', 'SPECIFICATIONS', 'FEATURES', 'SEO', 'CATALOG'];
+  const publishingReviewComplete = requiredPublishingSections.every((section) => workspace.reviewedSections.includes(section));
   const confidence = confidenceBreakdown(draft);
 
   useEffect(() => {
@@ -200,6 +206,12 @@ export function ListingDraftReview({
 
       {view === 'REVIEW' ? (
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <Card title="Shopify approval readiness">
+            <p className="text-sm text-slate-300">{publishingReviewComplete ? 'All required listing sections are approved. Save this authoritative draft before preparing Shopify changes.' : `${workspace.reviewedSections.filter((section) => requiredPublishingSections.includes(section)).length} of ${requiredPublishingSections.length} required listing sections are approved.`}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {!publishingReviewComplete ? <><button type="button" onClick={onOpenListing} className="rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10">Review listing sections</button><button type="button" onClick={onOpenAdvanced} className="rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10">Review SEO and catalog</button></> : <button type="button" onClick={onSave} disabled={readOnly || saving} className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-4 py-2 text-xs font-semibold text-slate-950 disabled:opacity-60"><Save className="h-3 w-3" aria-hidden="true" />{saving ? 'Saving approval…' : 'Approve and save draft'}</button>}
+            </div>
+          </Card>
           <Card title="Product Truth">
             {workspace.facts.length ? workspace.facts.map((fact) => (
               <div key={fact.factId} className="rounded-xl border border-white/10 bg-[#07111f] p-3">
