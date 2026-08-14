@@ -275,8 +275,8 @@ export async function executeSafePublishingPlan(userId: string, projectId: strin
   let mutationAttempted = false;
   try {
     if (plan.mode === 'CREATE_NEW') {
-      mutationAttempted = true;
       const result = await publishUserShopifyProject(userId, projectId, { product: createProduct });
+      mutationAttempted = true;
       if (result.outcome === 'LINK_PENDING') {
         await prisma.shopifyPublishingPlan.update({ where: { id: record.id }, data: { status: 'PARTIAL', executedAt: new Date() } });
         throw new SafePublishingError('UNCERTAIN_REMOTE_STATE', 409, 'Shopify created the product, but ListingPilot could not verify the local link. Manual recovery is required.');
