@@ -19,6 +19,7 @@ import {
   remoteImageInputSchema,
   uploadInitiationInputSchema,
   validateImageBytes,
+  imageQuality,
 } from './image-validation.ts';
 import { downloadRemoteImage } from './remote-image.ts';
 
@@ -112,12 +113,21 @@ export function buildImageConfigurationDto(
       filename: image.originalFilename,
       mimeType: image.mimeType,
       byteSize: image.byteSize,
+      width: image.width,
+      height: image.height,
+      ...(() => {
+        const quality = imageQuality(image);
+        return { quality: quality.status, qualityWarning: quality.warning };
+      })(),
       altText: image.altText,
       position: image.position,
       isPrimary: image.isPrimary,
       status: image.status,
       published: Boolean(image.shopifyMediaId && image.lastPublishedAt),
-      thumbnailUrl: clientSafeImageUrl(image.shopifyImageUrl),
+      thumbnailUrl: clientSafeImageUrl(image.shopifyImageUrl)
+        ?? (image.sourceType === 'REMOTE_URL' && image.sourceUrl
+          ? `/api/product-images/managed/${image.id}/preview`
+          : null),
       lastError: image.lastErrorCategory
         ? 'This image needs attention before it can be published.'
         : null,
@@ -336,6 +346,50 @@ export async function addRemoteShopifyImage(
   });
 }
 
+export async function addManagedRemoteImage(
+  repository: ShopifyImageRepository,
+  context: ShopifyImageProjectContext | null,
+  untrustedInput: unknown,
+  provenance: { sourceKind: string; sourcePageUrl: string; sourceImageId?: string },
+  download: typeof downloadRemoteImage = downloadRemoteImage,
+) {
+  const project = requireOwner(context);
+  const input = remoteImageInputSchema.parse(untrustedInput);
+  const remote = await download(input.url);
+  const validated = validateImageBytes({
+    bytes: remote.bytes,
+    declaredMimeType: remote.mimeType,
+  });
+  try {
+    const localImageId = await repository.createImage({
+      context: project,
+      sourceType: 'REMOTE_URL',
+      sourceUrl: remote.canonicalUrl,
+      originalFilename: null,
+      ...validated,
+      sourceProvenance: provenance.sourceKind,
+      sourcePageUrl: provenance.sourcePageUrl,
+      sourceImageId: provenance.sourceImageId,
+      altText: input.altText,
+      initialStatus: 'CONFIGURED',
+    });
+    return {
+      localImageId,
+      configuration: buildImageConfigurationDto(await refreshed(repository, project)),
+    };
+  } catch (error) {
+    if (error instanceof Error && error.message === 'DUPLICATE_IMAGE') {
+      throw new ShopifyImageError(
+        'SHOPIFY_IMAGE_INVALID_INPUT',
+        'This image is already managed for this Product.',
+        409,
+        { cause: error },
+      );
+    }
+    throw normalizeShopifyImageError(error);
+  }
+}
+
 export async function initiateShopifyImageUpload(
   repository: ShopifyImageRepository,
   context: ShopifyImageProjectContext | null,
@@ -494,6 +548,45 @@ export async function publishShopifyImages(
       409,
     );
   }
+  for (const image of project.configuration.images) {
+    if (!image.active || image.status !== 'CONFIGURED' || image.shopifyFileId) continue;
+    if (!image.sourceUrl) {
+      throw new ShopifyImageError(
+        'SHOPIFY_IMAGE_UPLOAD_FAILED',
+        'This managed image must be re-added before it can be published.',
+        422,
+      );
+    }
+    try {
+      const remote = await downloadRemoteImage(image.sourceUrl);
+      const validated = validateImageBytes({ bytes: remote.bytes, declaredMimeType: remote.mimeType });
+      if (validated.contentHash !== image.contentHash) {
+        throw new ShopifyImageError(
+          'SHOPIFY_IMAGE_UNSAFE_REMOTE',
+          'The source image changed after import. Review and import it again before publishing.',
+          409,
+        );
+      }
+      const file = await createShopifyFile(dependencies.shopify, project, {
+        bytes: remote.bytes,
+        contentHash: validated.contentHash,
+        mimeType: validated.mimeType,
+        altText: image.altText,
+      });
+      await dependencies.repository.persistCreatedFile({
+        context: project,
+        localImageId: image.id,
+        shopifyFileId: file.id,
+        status: file.fileStatus === 'FAILED'
+          ? 'FAILED'
+          : file.fileStatus === 'READY' ? 'READY' : 'PROCESSING',
+        imageUrl: file.imageUrl,
+      });
+    } catch (error) {
+      throw normalizeShopifyImageError(error);
+    }
+  }
+  project = await refreshed(dependencies.repository, project);
   project = await refreshFiles(dependencies.repository, dependencies.shopify, project);
   const remote = await dependencies.shopify.getProductMedia(
     project.workspaceId,

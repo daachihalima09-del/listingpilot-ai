@@ -67,12 +67,13 @@ test('empty saved projects use neutral state and never initialize Samsung demo d
   assert.match(source, /seoData: persistedDraftFields\?\.seoData \?\? null/);
 });
 
-test('demo analysis activates only through the explicit demo action', async () => {
-  const source = await readFile(new URL('./ListingWorkspace.tsx', import.meta.url), 'utf8');
-  assert.match(source, /const handleLoadDemoProduct/);
-  assert.match(source, /setUseDemoFallback\(true\)/);
-  assert.equal(source.match(/setUseDemoFallback\(true\)/g)?.length, 1);
-  assert.match(source, /onLoadDemoProduct=\{handleLoadDemoProduct\}/);
+test('merchant analysis workflow does not expose demo product controls', async () => {
+  const [workspace, input] = await Promise.all([
+    readFile(new URL('./ListingWorkspace.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('./ProductInput.tsx', import.meta.url), 'utf8'),
+  ]);
+  assert.doesNotMatch(workspace, /handleLoadDemoProduct|setUseDemoFallback|onLoadDemoProduct/u);
+  assert.doesNotMatch(input, /Load Demo Product|onLoadDemoProduct/u);
 });
 
 test('entry supports Product URL and Analyze Product then reveals the workspace', async () => {
@@ -125,7 +126,7 @@ test('normal project analysis cannot enter demo state or synthesize PDF results'
   ]);
   assert.doesNotMatch(workspace, /buildUploadedPdfDemoProduct/);
   assert.match(workspace, /analysisInput\.kind === 'uploaded-pdf'[\s\S]*PDF analysis is not available yet/);
-  assert.match(workspace, /useLiveAnalysis = analysisInput\.kind !== 'raw-specifications' \|\| !useDemoFallback/);
+  assert.doesNotMatch(workspace, /useDemoFallback|useLiveAnalysis/u);
   assert.doesNotMatch(input, /Stored locally for this demo|Demo Mode/);
 });
 

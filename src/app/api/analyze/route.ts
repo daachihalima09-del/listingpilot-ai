@@ -4,10 +4,26 @@ import { productAnalysisJsonSchema, productAnalysisSchema } from '@/lib/analysis
 import { extractProductPage, ProductPageExtractionError } from '@/lib/product-page-extractor';
 import { getOpenAiResponsesClient } from '@/modules/openai/responses-client.server';
 import { OpenAiResponsesError } from '@/modules/openai/responses-client-core';
+import { getCurrentUser } from '@/modules/auth/server/context';
+import { persistDetectedProductImages, ProductImagePersistenceError } from '@/modules/product-images/product-image-service.server';
+import type { DetectedSourceImage } from '@/modules/product-images/source-image-detection';
 
 export const runtime = 'nodejs';
 
 const MAX_REQUEST_BYTES = 50_000;
+const productIdentitySchema = z.object({ workspaceId: z.string().uuid(), projectId: z.string().uuid(), productId: z.string().uuid() }).strict().optional();
+
+function safeImagePersistenceDiagnostic(error: unknown) {
+  const root = error instanceof ProductImagePersistenceError && error.cause ? error.cause : error;
+  const value = root as { name?: string; code?: string; meta?: { modelName?: string; target?: unknown; field_name?: string } };
+  return {
+    errorClass: value?.name ?? (root instanceof Error ? root.name : 'UnknownError'),
+    errorCode: value?.code ?? null,
+    modelName: value?.meta?.modelName ?? null,
+    target: value?.meta?.target ?? null,
+    field: value?.meta?.field_name ?? null,
+  };
+}
 
 const analyzeRequestSchema = z.discriminatedUnion('source', [
   z.object({
@@ -17,10 +33,12 @@ const analyzeRequestSchema = z.discriminatedUnion('source', [
   z.object({
     source: z.literal('product-url'),
     url: z.string().trim().min(1).max(2_048),
+    productIdentity: productIdentitySchema,
   }).strict(),
   z.object({
     source: z.literal('supplier-url'),
     url: z.string().trim().min(1).max(2_048),
+    productIdentity: productIdentitySchema,
   }).strict(),
 ]);
 
@@ -89,10 +107,14 @@ export async function POST(request: Request) {
 
   let analysisInput: string;
   let sourceInstruction: string;
+  let detectedImages: DetectedSourceImage[] = [];
+  let finalSourceUrl: string | null = null;
   try {
     if (parsedRequest.source === 'product-url' || parsedRequest.source === 'supplier-url') {
       const extractedPage = await extractProductPage(parsedRequest.url, request.signal);
       analysisInput = extractedPage.pageText;
+      detectedImages = extractedPage.sourceImages;
+      finalSourceUrl = extractedPage.finalUrl;
       const pageType = parsedRequest.source === 'supplier-url' ? 'Supplier page' : 'Product page';
       sourceInstruction = `Use source "${pageType}: ${new URL(extractedPage.finalUrl).hostname}" for supplied facts.`;
     } else {
@@ -108,7 +130,7 @@ export async function POST(request: Request) {
       { status: 502 },
     );
   }
-
+  let analysisResult: z.infer<typeof productAnalysisSchema>;
   try {
     const result = await getOpenAiResponsesClient().createStructuredResponse({
       schemaName: 'listingpilot_product_analysis',
@@ -136,7 +158,7 @@ export async function POST(request: Request) {
       reasoningEffort: 'low',
       signal: request.signal,
     });
-    return NextResponse.json(result.data);
+    analysisResult = result.data;
   } catch (error) {
     if (error instanceof OpenAiResponsesError && error.code === 'TIMED_OUT') {
       return NextResponse.json(
@@ -160,4 +182,24 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+
+  if (parsedRequest.source !== 'raw-specifications' && parsedRequest.productIdentity && finalSourceUrl) {
+    try {
+      const user = await getCurrentUser();
+      if (!user) return NextResponse.json({ error: 'Authentication is required.' }, { status: 401 });
+      await persistDetectedProductImages(user.id, parsedRequest.productIdentity, finalSourceUrl, detectedImages);
+    } catch (error) {
+      console.error('Unable to persist detected Product images', {
+        stage: 'product_source_images',
+        ...parsedRequest.productIdentity,
+        candidateCount: detectedImages.length,
+        ...safeImagePersistenceDiagnostic(error),
+      });
+      return NextResponse.json({
+        ...analysisResult,
+        imageDiscoveryWarning: 'Product analysis completed, but source images need to be retried from the Images tab.',
+      });
+    }
+  }
+  return NextResponse.json(analysisResult);
 }

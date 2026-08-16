@@ -173,7 +173,51 @@ export function validateImageBytes(input: {
     mimeType,
     byteSize: input.bytes.length,
     contentHash: createHash('sha256').update(input.bytes).digest('hex'),
+    ...readImageDimensions(input.bytes, mimeType),
   };
+}
+
+export function readImageDimensions(
+  bytes: Uint8Array,
+  mimeType: ShopifyImageMimeType,
+): { width: number | null; height: number | null } {
+  if (mimeType === 'image/png' && bytes.length >= 24) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    return { width: view.getUint32(16), height: view.getUint32(20) };
+  }
+  if (mimeType === 'image/jpeg') {
+    for (let offset = 2; offset + 8 < bytes.length;) {
+      if (bytes[offset] !== 0xff) { offset += 1; continue; }
+      const marker = bytes[offset + 1]!;
+      if (marker === 0xd8 || marker === 0xd9) { offset += 2; continue; }
+      const length = (bytes[offset + 2]! << 8) + bytes[offset + 3]!;
+      if (length < 2 || offset + length + 2 > bytes.length) break;
+      if ([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf].includes(marker)) {
+        return {
+          height: (bytes[offset + 5]! << 8) + bytes[offset + 6]!,
+          width: (bytes[offset + 7]! << 8) + bytes[offset + 8]!,
+        };
+      }
+      offset += length + 2;
+    }
+  }
+  if (mimeType === 'image/webp' && bytes.length >= 30) {
+    const chunk = new TextDecoder().decode(bytes.slice(12, 16));
+    if (chunk === 'VP8X') {
+      const width = 1 + bytes[24]! + (bytes[25]! << 8) + (bytes[26]! << 16);
+      const height = 1 + bytes[27]! + (bytes[28]! << 8) + (bytes[29]! << 16);
+      return { width, height };
+    }
+  }
+  return { width: null, height: null };
+}
+
+export function imageQuality(input: { width: number | null; height: number | null; byteSize: number }) {
+  if (input.width === null || input.height === null) return { status: 'NEEDS_ATTENTION' as const, warning: 'Dimensions could not be verified.' };
+  if (input.width < 800 || input.height < 800) return { status: 'LOW_RESOLUTION' as const, warning: 'Resolution is below 800 × 800 pixels.' };
+  const ratio = Math.max(input.width / input.height, input.height / input.width);
+  if (input.width < 1_200 || input.height < 1_200 || ratio > 3) return { status: 'NEEDS_ATTENTION' as const, warning: ratio > 3 ? 'The image has an unusually wide or tall aspect ratio.' : 'A larger image may look sharper in ecommerce layouts.' };
+  return { status: 'GOOD' as const, warning: null };
 }
 
 export type ImageConfigurationInput = z.infer<

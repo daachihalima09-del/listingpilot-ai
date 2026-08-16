@@ -111,7 +111,7 @@ const configurationInclude = {
 
 export const prismaShopifyVariantRepository: ShopifyVariantRepository = {
   async resolveProject(actorUserId, projectId) {
-    const project = await prisma.project.findFirst({
+    const project = await prisma.product.findFirst({
       where: {
         id: projectId,
         workspace: {
@@ -165,7 +165,7 @@ export const prismaShopifyVariantRepository: ShopifyVariantRepository = {
 
   async getDto(workspaceId, projectId) {
     const configuration = await prisma.shopifyVariantConfiguration.findFirst({
-      where: { workspaceId, projectId },
+      where: { workspaceId, productId: projectId },
       include: configurationInclude,
     });
     return toDto(configuration ? parseConfiguration(configuration) : null);
@@ -174,7 +174,7 @@ export const prismaShopifyVariantRepository: ShopifyVariantRepository = {
   async saveConfiguration({ workspaceId, projectId, configuration }) {
     return prisma.$transaction(async (transaction) => {
       const existing = await transaction.shopifyVariantConfiguration.findFirst({
-        where: { workspaceId, projectId },
+        where: { workspaceId, productId: projectId },
       });
       if ((existing?.version ?? 0) !== configuration.version) return null;
 
@@ -184,7 +184,11 @@ export const prismaShopifyVariantRepository: ShopifyVariantRepository = {
             data: { version: { increment: 1 } },
           })
         : await transaction.shopifyVariantConfiguration.create({
-            data: { workspaceId, projectId },
+            data: {
+              workspaceId,
+              productId: projectId,
+              projectId: (await transaction.product.findUniqueOrThrow({ where: { id: projectId }, select: { projectId: true } })).projectId,
+            },
           });
 
       await transaction.shopifyProjectOption.deleteMany({

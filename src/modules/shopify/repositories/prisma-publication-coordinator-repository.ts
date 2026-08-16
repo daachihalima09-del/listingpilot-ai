@@ -65,7 +65,7 @@ function productInput(project: {
 
 export const prismaPublicationCoordinatorRepository: CoordinatorRepository = {
   async resolveProject(actorUserId, projectId) {
-    const project = await prisma.project.findFirst({
+    const project = await prisma.product.findFirst({
       where: {
         id: projectId,
         workspace: {
@@ -183,7 +183,7 @@ export const prismaPublicationCoordinatorRepository: CoordinatorRepository = {
   async latest(context) {
     const result = await prisma.shopifyPublicationExecution.findFirst({
       where: {
-        projectId: context.projectId,
+        productId: context.projectId,
         workspaceId: context.workspaceId,
       },
       orderBy: { executionNumber: 'desc' },
@@ -219,13 +219,15 @@ export const prismaPublicationCoordinatorRepository: CoordinatorRepository = {
           staleRecovered = true;
         }
         const latest = await transaction.shopifyPublicationExecution.findFirst({
-          where: { projectId: input.context.projectId },
+          where: { productId: input.context.projectId },
           orderBy: { executionNumber: 'desc' },
           select: { executionNumber: true },
         });
+        const owner = await transaction.product.findUniqueOrThrow({ where: { id: input.context.projectId }, select: { projectId: true } });
         const execution = await transaction.shopifyPublicationExecution.create({
           data: {
-            projectId: input.context.projectId,
+            projectId: owner.projectId,
+            productId: input.context.projectId,
             workspaceId: input.context.workspaceId,
             shopifyStoreId: input.context.shopifyStoreId!,
             requestedByUserId: input.context.actorUserId,

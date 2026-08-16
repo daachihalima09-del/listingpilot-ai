@@ -59,6 +59,26 @@ enum ShopifyPublishingPlanStatus {
   FAILED
 }
 
+enum ShopifyBulkPublishingBatchStatus {
+  PREPARING
+  READY
+  EXECUTING
+  PARTIAL_SUCCESS
+  COMPLETED
+  FAILED
+}
+
+enum ShopifyBulkPublishingItemStatus {
+  PREPARING
+  READY
+  BLOCKED
+  EXECUTING
+  COMPLETED
+  FAILED
+  STALE
+  PARTIAL
+}
+
 enum ShopifyStoreStatus {
   PENDING
   CONNECTED
@@ -127,6 +147,19 @@ enum ShopifyProductPublicationStatus {
 enum ShopifyImageSourceType {
   REMOTE_URL
   LOCAL_UPLOAD
+}
+
+enum ProductSourceImageKind {
+  JSON_LD
+  OPEN_GRAPH
+  GALLERY
+  SRCSET
+  IMAGE_ELEMENT
+}
+
+enum ProductSourceImageStatus {
+  DETECTED
+  IMPORTED
 }
 
 enum ShopifyImageStatus {
@@ -228,6 +261,7 @@ model User {
   shopifyPublicationExecutions ShopifyPublicationExecution[]
   shopifyChangeReviews         ShopifyChangeReview[]
   shopifyPublishingPlans       ShopifyPublishingPlan[]
+  shopifyBulkPublishingBatches ShopifyBulkPublishingBatch[]
 
   @@index([status])
   @@map("users")
@@ -247,24 +281,27 @@ model Organization {
 }
 
 model Workspace {
-  id                        String                     @id @default(uuid()) @db.Uuid
-  organizationId            String                     @map("organization_id") @db.Uuid
-  name                      String                     @db.VarChar(200)
-  slug                      String                     @db.VarChar(100)
-  createdAt                 DateTime                   @default(now()) @map("created_at")
-  updatedAt                 DateTime                   @updatedAt @map("updated_at")
-  organization              Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  auditLogs                 AuditLog[]
-  projects                  Project[]
-  shopifyStores             ShopifyStore[]
-  shopifyOAuthStates        ShopifyOAuthState[]
-  shopifyLaunchIntents      ShopifyLaunchIntent[]
-  merchantCatalogProfile    MerchantCatalogProfile?
-  merchantBusinessProfile   MerchantBusinessProfile?
-  listingGoldFixtures       ListingGoldFixture[]
-  listingCalibrationReports ListingCalibrationReport[]
-  craftRuleProposals        CraftRuleProposal[]
-  shopifyPublishingPlans    ShopifyPublishingPlan[]
+  id                           String                       @id @default(uuid()) @db.Uuid
+  organizationId               String                       @map("organization_id") @db.Uuid
+  name                         String                       @db.VarChar(200)
+  slug                         String                       @db.VarChar(100)
+  createdAt                    DateTime                     @default(now()) @map("created_at")
+  updatedAt                    DateTime                     @updatedAt @map("updated_at")
+  organization                 Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  auditLogs                    AuditLog[]
+  projects                     Project[]
+  products                     Product[]
+  shopifyStores                ShopifyStore[]
+  shopifyOAuthStates           ShopifyOAuthState[]
+  shopifyLaunchIntents         ShopifyLaunchIntent[]
+  merchantCatalogProfile       MerchantCatalogProfile?
+  merchantBusinessProfile      MerchantBusinessProfile?
+  listingGoldFixtures          ListingGoldFixture[]
+  listingCalibrationReports    ListingCalibrationReport[]
+  craftRuleProposals           CraftRuleProposal[]
+  shopifyPublishingPlans       ShopifyPublishingPlan[]
+  shopifyBulkPublishingBatches ShopifyBulkPublishingBatch[]
+  productSourceImages          ProductSourceImage[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -349,8 +386,50 @@ model MerchantCatalogEntry {
 }
 
 model Project {
+  id                            String                          @id @default(uuid()) @db.Uuid
+  workspaceId                   String                          @map("workspace_id") @db.Uuid
+  name                          String                          @db.VarChar(200)
+  status                        ProjectStatus                   @default(DRAFT)
+  statusBeforeArchive           ProjectStatus?                  @map("status_before_archive")
+  sourceType                    ProjectSourceType?              @map("source_type")
+  sourceUrl                     String?                         @map("source_url") @db.Text
+  rawInput                      String?                         @map("raw_input") @db.Text
+  analysisData                  Json?                           @map("analysis_data") @db.JsonB
+  generatedListing              Json?                           @map("generated_listing") @db.JsonB
+  seoData                       Json?                           @map("seo_data") @db.JsonB
+  readinessData                 Json?                           @map("readiness_data") @db.JsonB
+  version                       Int                             @default(1)
+  archivedAt                    DateTime?                       @map("archived_at")
+  createdAt                     DateTime                        @default(now()) @map("created_at")
+  updatedAt                     DateTime                        @updatedAt @map("updated_at")
+  workspace                     Workspace                       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  shopifyProductPublication     ShopifyProductPublication[]
+  shopifyVariantConfiguration   ShopifyVariantConfiguration[]
+  shopifyMetafieldConfiguration ShopifyMetafieldConfiguration[]
+  shopifyImageConfiguration     ShopifyImageConfiguration[]
+  shopifyImageUploadSessions    ShopifyImageUploadSession[]
+  shopifyPublicationExecutions  ShopifyPublicationExecution[]
+  shopifyProductImportLink      ShopifyProductImportLink[]
+  shopifyChangeReviews          ShopifyChangeReview[]
+  shopifyPublishingPlans        ShopifyPublishingPlan[]
+  shopifyBulkPublishingBatches  ShopifyBulkPublishingBatch[]
+  listingGoldFixtures           ListingGoldFixture[]
+  listingCalibrationReports     ListingCalibrationReport[]
+  products                      Product[]
+  productSourceImages           ProductSourceImage[]
+
+  @@unique([id, workspaceId])
+  @@index([workspaceId])
+  @@index([workspaceId, updatedAt])
+  @@index([workspaceId, status])
+  @@index([archivedAt])
+  @@map("projects")
+}
+
+model Product {
   id                            String                         @id @default(uuid()) @db.Uuid
   workspaceId                   String                         @map("workspace_id") @db.Uuid
+  projectId                     String                         @map("project_id") @db.Uuid
   name                          String                         @db.VarChar(200)
   status                        ProjectStatus                  @default(DRAFT)
   statusBeforeArchive           ProjectStatus?                 @map("status_before_archive")
@@ -366,6 +445,7 @@ model Project {
   createdAt                     DateTime                       @default(now()) @map("created_at")
   updatedAt                     DateTime                       @updatedAt @map("updated_at")
   workspace                     Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project                       Project                        @relation(fields: [projectId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
   shopifyProductPublication     ShopifyProductPublication?
   shopifyVariantConfiguration   ShopifyVariantConfiguration?
   shopifyMetafieldConfiguration ShopifyMetafieldConfiguration?
@@ -375,15 +455,16 @@ model Project {
   shopifyProductImportLink      ShopifyProductImportLink?
   shopifyChangeReviews          ShopifyChangeReview[]
   shopifyPublishingPlans        ShopifyPublishingPlan[]
-  listingGoldFixtures           ListingGoldFixture[]
-  listingCalibrationReports     ListingCalibrationReport[]
+  shopifyBulkPublishingItems    ShopifyBulkPublishingItem[]
+  sourceImages                  ProductSourceImage[]
 
   @@unique([id, workspaceId])
-  @@index([workspaceId])
+  @@unique([id, projectId, workspaceId])
+  @@index([projectId, workspaceId, updatedAt])
+  @@index([projectId, workspaceId, status])
   @@index([workspaceId, updatedAt])
-  @@index([workspaceId, status])
   @@index([archivedAt])
-  @@map("projects")
+  @@map("products")
 }
 
 model ListingGoldFixture {
@@ -479,14 +560,16 @@ model ShopifyVariantConfiguration {
   id          String                  @id @default(uuid()) @db.Uuid
   projectId   String                  @map("project_id") @db.Uuid
   workspaceId String                  @map("workspace_id") @db.Uuid
+  productId   String?                 @map("product_id") @db.Uuid
   version     Int                     @default(1)
   createdAt   DateTime                @default(now()) @map("created_at")
   updatedAt   DateTime                @updatedAt @map("updated_at")
   project     Project                 @relation(fields: [projectId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  product     Product?                @relation(fields: [productId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
   options     ShopifyProjectOption[]
   variants    ShopifyProjectVariant[]
 
-  @@unique([projectId, workspaceId])
+  @@unique([productId, workspaceId])
   @@index([workspaceId])
   @@map("shopify_variant_configurations")
 }
@@ -547,6 +630,7 @@ model ShopifyProductPublication {
   id               String                          @id @default(uuid()) @db.Uuid
   projectId        String                          @map("project_id") @db.Uuid
   workspaceId      String                          @map("workspace_id") @db.Uuid
+  productId        String?                         @map("product_id") @db.Uuid
   shopifyProductId String                          @map("shopify_product_id") @db.VarChar(20)
   shopifyHandle    String?                         @map("shopify_handle") @db.VarChar(255)
   shopifyTitle     String                          @map("shopify_title") @db.VarChar(255)
@@ -556,8 +640,9 @@ model ShopifyProductPublication {
   createdAt        DateTime                        @default(now()) @map("created_at")
   updatedAt        DateTime                        @updatedAt @map("updated_at")
   project          Project                         @relation(fields: [projectId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  product          Product?                        @relation(fields: [productId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
 
-  @@unique([projectId, workspaceId])
+  @@unique([productId, workspaceId])
   @@unique([workspaceId, shopifyProductId])
   @@index([workspaceId, lastPublishedAt])
   @@map("shopify_product_publications")
@@ -567,14 +652,16 @@ model ShopifyMetafieldConfiguration {
   id            String                    @id @default(uuid()) @db.Uuid
   projectId     String                    @map("project_id") @db.Uuid
   workspaceId   String                    @map("workspace_id") @db.Uuid
+  productId     String?                   @map("product_id") @db.Uuid
   schemaVersion String                    @map("schema_version") @db.VarChar(20)
   version       Int                       @default(1)
   createdAt     DateTime                  @default(now()) @map("created_at")
   updatedAt     DateTime                  @updatedAt @map("updated_at")
   project       Project                   @relation(fields: [projectId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  product       Product?                  @relation(fields: [productId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
   metafields    ShopifyProjectMetafield[]
 
-  @@unique([projectId, workspaceId])
+  @@unique([productId, workspaceId])
   @@index([workspaceId])
   @@map("shopify_metafield_configurations")
 }
@@ -651,8 +738,9 @@ model ShopifyMetafieldDefinitionLink {
 
 model ShopifyProductImportLink {
   id                       String                  @id @default(uuid()) @db.Uuid
-  projectId                String                  @unique @map("project_id") @db.Uuid
+  projectId                String                  @map("project_id") @db.Uuid
   workspaceId              String                  @map("workspace_id") @db.Uuid
+  productId                String?                 @map("product_id") @db.Uuid
   shopifyStoreId           String                  @map("shopify_store_id") @db.Uuid
   shopifyProductGid        String                  @map("shopify_product_gid") @db.VarChar(255)
   shopifyProductLegacyId   String                  @map("shopify_product_legacy_id") @db.VarChar(20)
@@ -663,10 +751,11 @@ model ShopifyProductImportLink {
   importedAt               DateTime                @default(now()) @map("imported_at")
   lastSourceReadAt         DateTime                @map("last_source_read_at")
   project                  Project                 @relation(fields: [projectId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  product                  Product?                @relation(fields: [productId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
   shopifyStore             ShopifyStore            @relation(fields: [shopifyStoreId, workspaceId], references: [id, workspaceId], onDelete: Restrict)
 
   @@unique([workspaceId, shopifyStoreId, shopifyProductGid])
-  @@unique([projectId, workspaceId])
+  @@unique([productId, workspaceId])
   @@index([workspaceId, shopifyProductGid])
   @@index([shopifyStoreId, shopifyProductGid])
   @@index([workspaceId, status])
@@ -677,6 +766,7 @@ model ShopifyChangeReview {
   id                   String                    @id @default(uuid()) @db.Uuid
   projectId            String                    @map("project_id") @db.Uuid
   workspaceId          String                    @map("workspace_id") @db.Uuid
+  productId            String?                   @map("product_id") @db.Uuid
   shopifyStoreId       String                    @map("shopify_store_id") @db.Uuid
   createdByUserId      String                    @map("created_by_user_id") @db.Uuid
   shopifyProductGid    String                    @map("shopify_product_gid") @db.VarChar(255)
@@ -695,11 +785,13 @@ model ShopifyChangeReview {
   createdAt            DateTime                  @default(now()) @map("created_at")
   updatedAt            DateTime                  @updatedAt @map("updated_at")
   project              Project                   @relation(fields: [projectId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  product              Product?                  @relation(fields: [productId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
   shopifyStore         ShopifyStore              @relation(fields: [shopifyStoreId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
   createdByUser        User                      @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
 
   @@unique([id, workspaceId])
   @@index([projectId, workspaceId, generatedAt])
+  @@index([productId, workspaceId, generatedAt])
   @@index([workspaceId, status, generatedAt])
   @@index([shopifyStoreId, shopifyProductGid])
   @@index([status, expiresAt])
@@ -708,52 +800,102 @@ model ShopifyChangeReview {
 }
 
 model ShopifyPublishingPlan {
-  id                String                      @id @default(uuid()) @db.Uuid
-  projectId         String                      @map("project_id") @db.Uuid
-  workspaceId       String                      @map("workspace_id") @db.Uuid
-  shopifyStoreId    String                      @map("shopify_store_id") @db.Uuid
-  createdByUserId   String                      @map("created_by_user_id") @db.Uuid
-  mode              ShopifyPublishingPlanMode
-  status            ShopifyPublishingPlanStatus @default(OPEN)
-  shopifyProductGid String?                     @map("shopify_product_gid") @db.VarChar(255)
-  schemaVersion     Int                         @default(1) @map("schema_version")
-  planVersion       Int                         @default(1) @map("plan_version")
-  projectVersion    Int                         @map("project_version")
-  draftFingerprint  String                      @map("draft_fingerprint") @db.Char(64)
-  remoteFingerprint String?                     @map("remote_fingerprint") @db.Char(64)
-  remoteUpdatedAt   DateTime?                   @map("remote_updated_at")
-  planFingerprint   String                      @map("plan_fingerprint") @db.Char(64)
-  payload           Json                        @db.JsonB
-  reviewSelection   Json                        @default("{}") @map("review_selection") @db.JsonB
-  expiresAt         DateTime                    @map("expires_at")
-  executionKey      String?                     @unique @map("execution_key") @db.VarChar(100)
-  executedAt        DateTime?                   @map("executed_at")
-  createdAt         DateTime                    @default(now()) @map("created_at")
-  updatedAt         DateTime                    @updatedAt @map("updated_at")
-  project           Project                     @relation(fields: [projectId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
-  workspace         Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  shopifyStore      ShopifyStore                @relation(fields: [shopifyStoreId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
-  createdByUser     User                        @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  id                 String                      @id @default(uuid()) @db.Uuid
+  projectId          String                      @map("project_id") @db.Uuid
+  workspaceId        String                      @map("workspace_id") @db.Uuid
+  productId          String?                     @map("product_id") @db.Uuid
+  shopifyStoreId     String                      @map("shopify_store_id") @db.Uuid
+  createdByUserId    String                      @map("created_by_user_id") @db.Uuid
+  mode               ShopifyPublishingPlanMode
+  status             ShopifyPublishingPlanStatus @default(OPEN)
+  shopifyProductGid  String?                     @map("shopify_product_gid") @db.VarChar(255)
+  schemaVersion      Int                         @default(1) @map("schema_version")
+  planVersion        Int                         @default(1) @map("plan_version")
+  projectVersion     Int                         @map("project_version")
+  draftFingerprint   String                      @map("draft_fingerprint") @db.Char(64)
+  remoteFingerprint  String?                     @map("remote_fingerprint") @db.Char(64)
+  remoteUpdatedAt    DateTime?                   @map("remote_updated_at")
+  planFingerprint    String                      @map("plan_fingerprint") @db.Char(64)
+  payload            Json                        @db.JsonB
+  reviewSelection    Json                        @default("{}") @map("review_selection") @db.JsonB
+  expiresAt          DateTime                    @map("expires_at")
+  executionKey       String?                     @unique @map("execution_key") @db.VarChar(100)
+  executedAt         DateTime?                   @map("executed_at")
+  createdAt          DateTime                    @default(now()) @map("created_at")
+  updatedAt          DateTime                    @updatedAt @map("updated_at")
+  project            Project                     @relation(fields: [projectId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  product            Product?                    @relation(fields: [productId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  workspace          Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  shopifyStore       ShopifyStore                @relation(fields: [shopifyStoreId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  createdByUser      User                        @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  bulkPublishingItem ShopifyBulkPublishingItem?
 
   @@unique([id, workspaceId])
   @@index([projectId, workspaceId, createdAt])
+  @@index([productId, workspaceId, createdAt])
   @@index([workspaceId, status, createdAt])
   @@index([shopifyStoreId, shopifyProductGid])
   @@index([status, expiresAt])
   @@map("shopify_publishing_plans")
 }
 
+model ShopifyBulkPublishingBatch {
+  id              String                           @id @default(uuid()) @db.Uuid
+  projectId       String                           @map("project_id") @db.Uuid
+  workspaceId     String                           @map("workspace_id") @db.Uuid
+  createdByUserId String                           @map("created_by_user_id") @db.Uuid
+  status          ShopifyBulkPublishingBatchStatus @default(PREPARING)
+  createdAt       DateTime                         @default(now()) @map("created_at")
+  updatedAt       DateTime                         @updatedAt @map("updated_at")
+  completedAt     DateTime?                        @map("completed_at")
+  project         Project                          @relation(fields: [projectId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  workspace       Workspace                        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdByUser   User                             @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  items           ShopifyBulkPublishingItem[]
+
+  @@unique([id, workspaceId])
+  @@index([projectId, workspaceId, createdAt])
+  @@index([workspaceId, status, createdAt])
+  @@map("shopify_bulk_publishing_batches")
+}
+
+model ShopifyBulkPublishingItem {
+  id               String                          @id @default(uuid()) @db.Uuid
+  batchId          String                          @map("batch_id") @db.Uuid
+  productId        String                          @map("product_id") @db.Uuid
+  workspaceId      String                          @map("workspace_id") @db.Uuid
+  publishingPlanId String?                         @unique @map("publishing_plan_id") @db.Uuid
+  status           ShopifyBulkPublishingItemStatus @default(PREPARING)
+  intent           ShopifyPublishingPlanMode
+  blockers         Json                            @default("[]") @db.JsonB
+  result           Json?                           @db.JsonB
+  safeMessage      String?                         @map("safe_message") @db.VarChar(500)
+  reviewedAt       DateTime?                       @map("reviewed_at")
+  createdAt        DateTime                        @default(now()) @map("created_at")
+  updatedAt        DateTime                        @updatedAt @map("updated_at")
+  batch            ShopifyBulkPublishingBatch      @relation(fields: [batchId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  product          Product                         @relation(fields: [productId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  publishingPlan   ShopifyPublishingPlan?          @relation(fields: [publishingPlanId], references: [id], onDelete: SetNull)
+
+  @@unique([batchId, productId])
+  @@index([batchId, status])
+  @@index([productId, workspaceId, createdAt])
+  @@map("shopify_bulk_publishing_items")
+}
+
 model ShopifyImageConfiguration {
   id          String                @id @default(uuid()) @db.Uuid
   projectId   String                @map("project_id") @db.Uuid
   workspaceId String                @map("workspace_id") @db.Uuid
+  productId   String?               @map("product_id") @db.Uuid
   version     Int                   @default(1)
   createdAt   DateTime              @default(now()) @map("created_at")
   updatedAt   DateTime              @updatedAt @map("updated_at")
   project     Project               @relation(fields: [projectId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  product     Product?              @relation(fields: [productId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
   images      ShopifyProjectImage[]
 
-  @@unique([projectId, workspaceId])
+  @@unique([productId, workspaceId])
   @@index([workspaceId])
   @@map("shopify_image_configurations")
 }
@@ -778,9 +920,14 @@ model ShopifyProjectImage {
   firstPublishedAt  DateTime?                 @map("first_published_at")
   lastPublishedAt   DateTime?                 @map("last_published_at")
   lastErrorCategory String?                   @map("last_error_category") @db.VarChar(100)
+  width             Int?
+  height            Int?
+  sourceProvenance  String?                   @map("source_provenance") @db.VarChar(50)
+  sourcePageUrl     String?                   @map("source_page_url") @db.Text
   createdAt         DateTime                  @default(now()) @map("created_at")
   updatedAt         DateTime                  @updatedAt @map("updated_at")
   configuration     ShopifyImageConfiguration @relation(fields: [configurationId], references: [id], onDelete: Cascade)
+  sourceDiscovery   ProductSourceImage?
 
   @@unique([configurationId, position])
   @@unique([configurationId, contentHash])
@@ -789,10 +936,38 @@ model ShopifyProjectImage {
   @@map("shopify_project_images")
 }
 
+model ProductSourceImage {
+  id              String                   @id @default(uuid()) @db.Uuid
+  workspaceId     String                   @map("workspace_id") @db.Uuid
+  projectId       String                   @map("project_id") @db.Uuid
+  productId       String                   @map("product_id") @db.Uuid
+  sourcePageUrl   String                   @map("source_page_url") @db.Text
+  imageUrl        String                   @map("image_url") @db.Text
+  urlHash         String                   @map("url_hash") @db.Char(64)
+  sourceKind      ProductSourceImageKind   @map("source_kind")
+  width           Int?
+  height          Int?
+  altText         String?                  @map("alt_text") @db.VarChar(512)
+  score           Int
+  status          ProductSourceImageStatus @default(DETECTED)
+  importedImageId String?                  @unique @map("imported_image_id") @db.Uuid
+  firstDetectedAt DateTime                 @default(now()) @map("first_detected_at")
+  lastDetectedAt  DateTime                 @default(now()) @map("last_detected_at")
+  workspace       Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project         Project                  @relation(fields: [projectId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  product         Product                  @relation(fields: [productId, projectId, workspaceId], references: [id, projectId, workspaceId], onDelete: Cascade)
+  importedImage   ShopifyProjectImage?     @relation(fields: [importedImageId], references: [id], onDelete: SetNull)
+
+  @@unique([productId, workspaceId, urlHash])
+  @@index([productId, workspaceId, status, score])
+  @@map("product_source_images")
+}
+
 model ShopifyImageUploadSession {
   id               String                          @id @default(uuid()) @db.Uuid
   projectId        String                          @map("project_id") @db.Uuid
   workspaceId      String                          @map("workspace_id") @db.Uuid
+  productId        String?                         @map("product_id") @db.Uuid
   userId           String                          @map("user_id") @db.Uuid
   originalFilename String                          @map("original_filename") @db.VarChar(255)
   mimeType         String                          @map("mime_type") @db.VarChar(50)
@@ -803,9 +978,11 @@ model ShopifyImageUploadSession {
   consumedAt       DateTime?                       @map("consumed_at")
   createdAt        DateTime                        @default(now()) @map("created_at")
   project          Project                         @relation(fields: [projectId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  product          Product?                        @relation(fields: [productId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
   user             User                            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([projectId, workspaceId, userId])
+  @@index([productId, workspaceId, userId])
   @@index([expiresAt, status])
   @@map("shopify_image_upload_sessions")
 }
@@ -814,6 +991,7 @@ model ShopifyPublicationExecution {
   id                   String                            @id @default(uuid()) @db.Uuid
   projectId            String                            @map("project_id") @db.Uuid
   workspaceId          String                            @map("workspace_id") @db.Uuid
+  productId            String?                           @map("product_id") @db.Uuid
   shopifyStoreId       String                            @map("shopify_store_id") @db.Uuid
   requestedByUserId    String                            @map("requested_by_user_id") @db.Uuid
   status               ShopifyPublicationExecutionStatus @default(QUEUED)
@@ -826,12 +1004,14 @@ model ShopifyPublicationExecution {
   createdAt            DateTime                          @default(now()) @map("created_at")
   updatedAt            DateTime                          @updatedAt @map("updated_at")
   project              Project                           @relation(fields: [projectId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  product              Product?                          @relation(fields: [productId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
   shopifyStore         ShopifyStore                      @relation(fields: [shopifyStoreId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
   requestedByUser      User                              @relation(fields: [requestedByUserId], references: [id], onDelete: Restrict)
   steps                ShopifyPublicationStepExecution[]
 
-  @@unique([projectId, executionNumber])
+  @@unique([productId, executionNumber])
   @@index([projectId, createdAt])
+  @@index([productId, workspaceId, createdAt])
   @@index([workspaceId, status])
   @@index([shopifyStoreId])
   @@map("shopify_publication_executions")

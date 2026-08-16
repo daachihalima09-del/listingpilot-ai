@@ -60,6 +60,10 @@ function parseConfiguration(record: {
     firstPublishedAt: Date | null;
     lastPublishedAt: Date | null;
     lastErrorCategory: string | null;
+    width: number | null;
+    height: number | null;
+    sourceProvenance: string | null;
+    sourcePageUrl: string | null;
   }>;
 }): PersistedImageConfiguration {
   return {
@@ -84,6 +88,10 @@ function parseConfiguration(record: {
       firstPublishedAt: image.firstPublishedAt,
       lastPublishedAt: image.lastPublishedAt,
       lastErrorCategory: image.lastErrorCategory,
+      width: image.width,
+      height: image.height,
+      sourceProvenance: image.sourceProvenance,
+      sourcePageUrl: image.sourcePageUrl,
     })),
   };
 }
@@ -93,6 +101,7 @@ function parseUploadSession(record: {
   userId: string;
   workspaceId: string;
   projectId: string;
+  productId?: string | null;
   originalFilename: string;
   mimeType: string;
   byteSize: number;
@@ -104,7 +113,7 @@ function parseUploadSession(record: {
     id: record.id,
     actorUserId: record.userId,
     workspaceId: record.workspaceId,
-    projectId: record.projectId,
+    projectId: record.productId ?? record.projectId,
     filename: record.originalFilename,
     mimeType: parseMimeType(record.mimeType),
     byteSize: record.byteSize,
@@ -116,7 +125,7 @@ function parseUploadSession(record: {
 
 export const prismaShopifyImageRepository: ShopifyImageRepository = {
   async resolveProject(actorUserId, projectId) {
-    const project = await prisma.project.findFirst({
+    const project = await prisma.product.findFirst({
       where: {
         id: projectId,
         workspace: {
@@ -184,7 +193,7 @@ export const prismaShopifyImageRepository: ShopifyImageRepository = {
       const existing = await transaction.shopifyImageConfiguration.findFirst({
         where: {
           workspaceId: input.context.workspaceId,
-          projectId: input.context.projectId,
+          productId: input.context.projectId,
         },
         include: { images: true },
       });
@@ -224,6 +233,17 @@ export const prismaShopifyImageRepository: ShopifyImageRepository = {
         where: { id: existing.id },
         data: { version: { increment: 1 } },
       });
+      await transaction.auditLog.create({
+        data: {
+          organizationId: input.context.organizationId,
+          workspaceId: input.context.workspaceId,
+          userId: input.context.actorUserId,
+          action: 'product.images_configuration_updated',
+          entityType: 'Product',
+          entityId: input.context.projectId,
+          metadata: { managedCount: input.images.length, removedCount: omitted.length },
+        },
+      });
       return true;
     }, {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
@@ -234,10 +254,14 @@ export const prismaShopifyImageRepository: ShopifyImageRepository = {
 
   async createImage(input) {
     return prisma.$transaction(async (transaction) => {
+      const owner = await transaction.product.findFirstOrThrow({
+        where: { id: input.context.projectId, workspaceId: input.context.workspaceId },
+        select: { projectId: true },
+      });
       let configuration = await transaction.shopifyImageConfiguration.findFirst({
         where: {
           workspaceId: input.context.workspaceId,
-          projectId: input.context.projectId,
+          productId: input.context.projectId,
         },
         include: { images: true },
       });
@@ -263,6 +287,10 @@ export const prismaShopifyImageRepository: ShopifyImageRepository = {
               mimeType: input.mimeType,
               byteSize: input.byteSize,
               altText: input.altText,
+              width: input.width,
+              height: input.height,
+              sourceProvenance: input.sourceProvenance ?? null,
+              sourcePageUrl: input.sourcePageUrl ?? null,
               active: true,
               status: 'UPLOADING',
               lastErrorCategory: null,
@@ -276,7 +304,8 @@ export const prismaShopifyImageRepository: ShopifyImageRepository = {
         configuration = await transaction.shopifyImageConfiguration.create({
           data: {
             workspaceId: input.context.workspaceId,
-            projectId: input.context.projectId,
+            projectId: owner.projectId,
+            productId: input.context.projectId,
           },
           include: { images: true },
         });
@@ -296,11 +325,29 @@ export const prismaShopifyImageRepository: ShopifyImageRepository = {
           byteSize: input.byteSize,
           contentHash: input.contentHash,
           altText: input.altText,
+          width: input.width,
+          height: input.height,
+          sourceProvenance: input.sourceProvenance ?? null,
+          sourcePageUrl: input.sourcePageUrl ?? null,
           position: active.length,
           isPrimary: active.length === 0,
-          status: 'UPLOADING',
+          status: input.initialStatus ?? 'UPLOADING',
         },
       });
+      if (input.sourceImageId) {
+        const linked = await transaction.productSourceImage.updateMany({
+          where: {
+            id: input.sourceImageId,
+            workspaceId: input.context.workspaceId,
+            projectId: owner.projectId,
+            productId: input.context.projectId,
+            status: 'DETECTED',
+            importedImageId: null,
+          },
+          data: { status: 'IMPORTED', importedImageId: image.id },
+        });
+        if (linked.count !== 1) throw new Error('SOURCE_IMAGE_LINK_FAILED');
+      }
       return image.id;
     }, {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
@@ -314,7 +361,7 @@ export const prismaShopifyImageRepository: ShopifyImageRepository = {
       where: {
         id: input.localImageId,
         configuration: {
-          projectId: input.context.projectId,
+          productId: input.context.projectId,
           workspaceId: input.context.workspaceId,
         },
       },
@@ -334,7 +381,7 @@ export const prismaShopifyImageRepository: ShopifyImageRepository = {
           where: {
             id: input.localImageId,
             configuration: {
-              projectId: input.context.projectId,
+              productId: input.context.projectId,
               workspaceId: input.context.workspaceId,
             },
           },
@@ -345,7 +392,7 @@ export const prismaShopifyImageRepository: ShopifyImageRepository = {
       where: {
         id: input.localImageId,
         configuration: {
-          projectId: input.context.projectId,
+          productId: input.context.projectId,
           workspaceId: input.context.workspaceId,
         },
       },
@@ -372,9 +419,11 @@ export const prismaShopifyImageRepository: ShopifyImageRepository = {
   },
 
   async createUploadSession(input) {
+    const owner = await prisma.product.findUniqueOrThrow({ where: { id: input.context.projectId }, select: { projectId: true } });
     return parseUploadSession(await prisma.shopifyImageUploadSession.create({
       data: {
-        projectId: input.context.projectId,
+        projectId: owner.projectId,
+        productId: input.context.projectId,
         workspaceId: input.context.workspaceId,
         userId: input.context.actorUserId,
         originalFilename: input.filename,
@@ -392,7 +441,7 @@ export const prismaShopifyImageRepository: ShopifyImageRepository = {
         id: input.uploadId,
         userId: input.actorUserId,
         workspaceId: input.workspaceId,
-        projectId: input.projectId,
+        productId: input.projectId,
         status: 'PENDING',
         expiresAt: { gt: input.now },
       },

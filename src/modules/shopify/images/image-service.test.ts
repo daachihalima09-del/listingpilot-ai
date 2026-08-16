@@ -5,6 +5,7 @@ import type {
   ShopifyImageRepository,
 } from './image-repository.ts';
 import {
+  addManagedRemoteImage,
   getShopifyImages,
   initiateShopifyImageUpload,
   saveShopifyImages,
@@ -100,4 +101,65 @@ test('configuration save uses optimistic conflict behavior', async () => {
     () => saveShopifyImages(repository, context(), { version: 1, images: [] }),
     { code: 'SHOPIFY_IMAGE_CONFIG_CONFLICT' },
   );
+});
+
+test('managed source import creates a Product image without Shopify publication or store linkage', async () => {
+  const calls: string[] = [];
+  const managedRepository = {
+    async createImage(input: Parameters<ShopifyImageRepository['createImage']>[0]) {
+      calls.push(`create:${input.initialStatus}:${input.context.projectId}:${input.sourceImageId}`);
+      return 'managed-image-id';
+    },
+    async resolveProject() {
+      return context({
+        shopifyStoreId: null,
+        grantedScopes: [],
+        shopifyProductId: null,
+        configuration: {
+          id: 'configuration',
+          version: 1,
+          images: [{
+            id: 'managed-image-id',
+            contentHash: 'a'.repeat(64),
+            altText: 'Front view',
+            position: 0,
+            isPrimary: true,
+            active: true,
+            status: 'CONFIGURED',
+            shopifyFileId: null,
+            shopifyMediaId: null,
+            sourceType: 'REMOTE_URL',
+            sourceUrl: 'https://images.example/product.png',
+            originalFilename: null,
+            mimeType: 'image/png',
+            byteSize: 9,
+            shopifyImageUrl: null,
+            firstPublishedAt: null,
+            lastPublishedAt: null,
+            lastErrorCategory: null,
+            width: null,
+            height: null,
+            sourceProvenance: 'JSON_LD',
+            sourcePageUrl: 'https://shop.example/product',
+          }],
+        },
+      });
+    },
+  } as unknown as ShopifyImageRepository;
+  const result = await addManagedRemoteImage(
+    managedRepository,
+    context({ shopifyStoreId: null, grantedScopes: [], shopifyProductId: null }),
+    { url: 'https://images.example/product.png', altText: 'Front view' },
+    { sourceKind: 'JSON_LD', sourcePageUrl: 'https://shop.example/product', sourceImageId: 'source-image-id' },
+    async () => ({
+      bytes: Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]),
+      mimeType: 'image/png' as const,
+      byteSize: 9,
+      canonicalUrl: 'https://images.example/product.png',
+      contentHash: 'unused',
+    }),
+  );
+  assert.equal(result.localImageId, 'managed-image-id');
+  assert.deepEqual(calls, ['create:CONFIGURED:project:source-image-id']);
+  assert.equal(result.configuration.images[0]?.thumbnailUrl, '/api/product-images/managed/managed-image-id/preview');
 });

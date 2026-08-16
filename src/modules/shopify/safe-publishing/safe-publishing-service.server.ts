@@ -38,11 +38,11 @@ export const preparePublishingSchema = z.object({
 
 type ProjectContext = Awaited<ReturnType<typeof resolvePublishingProject>>;
 
-async function resolvePublishingProject(userId: string, projectId: string) {
-  const project = await prisma.project.findFirst({
-    where: { id: projectId, archivedAt: null, workspace: { organization: { memberships: { some: { userId } } } } },
+async function resolvePublishingProject(userId: string, productId: string, containerProjectId?: string) {
+  const project = await prisma.product.findFirst({
+    where: { id: productId, ...(containerProjectId ? { projectId: containerProjectId } : {}), archivedAt: null, workspace: { organization: { memberships: { some: { userId } } } } },
     select: {
-      id: true, workspaceId: true, version: true, status: true, generatedListing: true, seoData: true,
+      id: true, projectId: true, workspaceId: true, version: true, status: true, generatedListing: true, seoData: true,
       workspace: { select: { organizationId: true, organization: { select: { memberships: { where: { userId }, take: 1, select: { role: true } } } }, shopifyStores: { where: { status: { in: ['CONNECTED', 'ACTIVE'] } }, take: 2, select: { id: true, workspaceId: true, status: true, shopDomain: true, shopName: true, accessTokenEncrypted: true } } } },
       shopifyProductPublication: { select: { shopifyProductId: true } },
       shopifyProductImportLink: { select: { id: true, status: true, workspaceId: true, shopifyStoreId: true, shopifyProductGid: true, shopifyProductLegacyId: true, sourceSnapshot: true, shopifyUpdatedAtAtImport: true } },
@@ -127,9 +127,9 @@ async function duplicateAssessment(context: ProjectContext, draft: ListingDraft)
   }))) };
 }
 
-export async function prepareSafePublishingPlan(userId: string, projectId: string, untrusted: unknown) {
+export async function prepareSafePublishingPlan(userId: string, projectId: string, untrusted: unknown, containerProjectId?: string) {
   const request = preparePublishingSchema.parse(untrusted);
-  const context = await resolvePublishingProject(userId, projectId);
+  const context = await resolvePublishingProject(userId, projectId, containerProjectId);
   const preferences = await getEffectiveMerchantPreferences(prismaMerchantBusinessProfileRepository, createMerchantPreferenceRegistry(), context.workspaceId);
   const draft = listingDraftFromProject(context.generatedListing);
   const baseBlockers = eligibilityBlockers({ role: context.role, draft, projectVersion: context.version, connected: Boolean(context.store?.accessTokenEncrypted), preferences });
@@ -188,9 +188,9 @@ async function persistPlan(
     inventoryProtected: true, collectionsCreated: false, createdAt: createdAt.toISOString(), expiresAt: expiresAt.toISOString(),
   });
   return prisma.$transaction(async (transaction) => {
-    await transaction.shopifyPublishingPlan.updateMany({ where: { projectId: context.id, workspaceId: context.workspaceId, status: 'OPEN' }, data: { status: 'STALE' } });
+    await transaction.shopifyPublishingPlan.updateMany({ where: { productId: context.id, projectId: context.projectId, workspaceId: context.workspaceId, status: 'OPEN' }, data: { status: 'STALE' } });
     const record = await transaction.shopifyPublishingPlan.create({ data: {
-      projectId: context.id, workspaceId: context.workspaceId, shopifyStoreId: context.store!.id, createdByUserId: userId,
+      projectId: context.projectId, productId: context.id, workspaceId: context.workspaceId, shopifyStoreId: context.store!.id, createdByUserId: userId,
       mode, shopifyProductGid: payload.shopifyLinkage.productGid, projectVersion: context.version, draftFingerprint: payload.draftFingerprint,
       remoteFingerprint: remoteHash, remoteUpdatedAt: remoteUpdatedAt ? new Date(remoteUpdatedAt) : null, planFingerprint: payload.planFingerprint,
       payload: payload as unknown as Prisma.InputJsonValue, expiresAt,
@@ -203,18 +203,18 @@ async function persistPlan(
   });
 }
 
-export async function getSafePublishingPlan(userId: string, projectId: string, planId?: string) {
-  const context = await resolvePublishingProject(userId, projectId);
-  const record = await prisma.shopifyPublishingPlan.findFirst({ where: { projectId, workspaceId: context.workspaceId, ...(planId ? { id: planId } : {}) }, orderBy: { createdAt: 'desc' } });
+export async function getSafePublishingPlan(userId: string, projectId: string, planId?: string, containerProjectId?: string) {
+  const context = await resolvePublishingProject(userId, projectId, containerProjectId);
+  const record = await prisma.shopifyPublishingPlan.findFirst({ where: { productId: projectId, projectId: context.projectId, workspaceId: context.workspaceId, ...(planId ? { id: planId } : {}) }, orderBy: { createdAt: 'desc' } });
   if (!record) return null;
   return { id: record.id, version: record.planVersion, status: record.status, stale: record.status !== 'OPEN' || record.expiresAt <= new Date() || record.projectVersion !== context.version, plan: record.payload as unknown as ShopifyPublishingPlanPayload, selection: record.reviewSelection, store: context.store ? { name: context.store.shopName, domain: context.store.shopDomain } : null };
 }
 
-export async function saveSafePublishingReview(userId: string, projectId: string, untrusted: unknown) {
+export async function saveSafePublishingReview(userId: string, projectId: string, untrusted: unknown, containerProjectId?: string) {
   const input = publishingPlanSelectionSchema.parse(untrusted);
-  const context = await resolvePublishingProject(userId, projectId);
+  const context = await resolvePublishingProject(userId, projectId, containerProjectId);
   if (context.role !== 'OWNER') throw new SafePublishingError('PUBLISHING_FORBIDDEN', 403, 'Only the workspace owner can save publishing decisions.');
-  const record = await prisma.shopifyPublishingPlan.findFirst({ where: { id: input.planId, projectId, workspaceId: context.workspaceId } });
+  const record = await prisma.shopifyPublishingPlan.findFirst({ where: { id: input.planId, productId: projectId, projectId: context.projectId, workspaceId: context.workspaceId } });
   if (!record || record.status !== 'OPEN' || record.expiresAt <= new Date()) throw new SafePublishingError('PLAN_STALE', 409, 'Refresh the comparison before saving your review.');
   const plan = record.payload as unknown as ShopifyPublishingPlanPayload;
   try { validatePlanReviewSelection(plan, input); } catch (error) { throw new SafePublishingError(error instanceof Error ? error.message : 'INVALID_SELECTION', 409, 'Review the selected changes.'); }
@@ -232,11 +232,11 @@ function selectedProductPayload(changes: PublishingPlanChange[]) {
   return product;
 }
 
-export async function executeSafePublishingPlan(userId: string, projectId: string, untrusted: unknown) {
+export async function executeSafePublishingPlan(userId: string, projectId: string, untrusted: unknown, containerProjectId?: string) {
   const input = publishingPlanSelectionSchema.parse(untrusted);
-  const context = await resolvePublishingProject(userId, projectId);
+  const context = await resolvePublishingProject(userId, projectId, containerProjectId);
   if (context.role !== 'OWNER') throw new SafePublishingError('PUBLISHING_FORBIDDEN', 403, 'Only the workspace owner can publish Shopify changes.');
-  const record = await prisma.shopifyPublishingPlan.findFirst({ where: { id: input.planId, projectId, workspaceId: context.workspaceId } });
+  const record = await prisma.shopifyPublishingPlan.findFirst({ where: { id: input.planId, productId: projectId, projectId: context.projectId, workspaceId: context.workspaceId } });
   if (!record) throw new SafePublishingError('PLAN_NOT_FOUND', 404, 'The publishing plan is unavailable.');
   if (record.status !== 'OPEN' || record.expiresAt <= new Date()) throw new SafePublishingError('PLAN_STALE', 409, 'Refresh the comparison before publishing.');
   const plan = record.payload as unknown as ShopifyPublishingPlanPayload;

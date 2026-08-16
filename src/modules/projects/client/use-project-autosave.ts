@@ -26,6 +26,7 @@ export interface ProjectSaveSnapshot {
 
 export interface SavedProjectWorkspace {
   id: string;
+  containerProjectId?: string;
   organizationId: string;
   workspaceId: string;
   name: string;
@@ -47,7 +48,11 @@ interface SaveQueueItem {
 }
 
 interface ProjectStateResponse {
-  project: {
+  project?: {
+    version: number;
+    updatedAt: string;
+  };
+  product?: {
     version: number;
     updatedAt: string;
   };
@@ -109,7 +114,9 @@ export function useProjectAutosave({
 
       try {
         const response = await projectApiRequest<ProjectStateResponse>(
-          `/api/projects/${project.id}/state`,
+          project.containerProjectId
+            ? `/api/projects/${project.containerProjectId}/products/${project.id}/state`
+            : `/api/projects/${project.id}/state`,
           {
             method: 'PATCH',
             body: {
@@ -119,8 +126,15 @@ export function useProjectAutosave({
             },
           },
         );
-        version.current = response.project.version;
-        setCurrentVersion(response.project.version);
+        // The shared workspace shell persists legacy Project state and Sprint 10
+        // Product state through different routes. Normalize their authoritative
+        // responses here; a Product save must never be mistaken for a failed save.
+        const savedEntity = response.product ?? response.project;
+        if (!savedEntity) {
+          throw new ProjectApiError(0, 'The saved workspace state was invalid. Refresh and try again.');
+        }
+        version.current = savedEntity.version;
+        setCurrentVersion(savedEntity.version);
         lastSavedHash.current = item.hash;
         if (mounted.current) {
           setStatus('saved');

@@ -13,13 +13,13 @@ export const prismaCatalogLinkStore: CatalogLinkStore = {
       prisma.shopifyProductImportLink.findMany({
         where: { workspaceId, shopifyProductGid: { in: productGids } },
         select: {
-          shopifyProductGid: true, shopifyProductLegacyId: true, shopifyStoreId: true, status: true,
-          project: { select: { id: true, archivedAt: true, shopifyProductPublication: { select: { shopifyProductId: true } } } },
+          projectId: true, shopifyProductGid: true, shopifyProductLegacyId: true, shopifyStoreId: true, status: true,
+          product: { select: { id: true, projectId: true, archivedAt: true, shopifyProductPublication: { select: { shopifyProductId: true } } } },
         },
       }),
       prisma.shopifyProductPublication.findMany({
         where: { workspaceId, shopifyProductId: { in: legacyIds } },
-        select: { shopifyProductId: true, project: { select: { id: true, archivedAt: true, shopifyProductImportLink: { select: { id: true } } } } },
+        select: { projectId: true, shopifyProductId: true, product: { select: { id: true, projectId: true, archivedAt: true, shopifyProductImportLink: { select: { id: true } } } } },
       }),
     ]);
     const result = new Map();
@@ -28,18 +28,18 @@ export const prismaCatalogLinkStore: CatalogLinkStore = {
         && link.status === 'LINKED'
         && link.shopifyStoreId === store!.id
         && link.shopifyProductLegacyId === legacyProductIdFromGid(link.shopifyProductGid)
-        && link.project.shopifyProductPublication?.shopifyProductId === link.shopifyProductLegacyId;
+        && link.product?.shopifyProductPublication?.shopifyProductId === link.shopifyProductLegacyId;
       result.set(link.shopifyProductGid, {
-        status: !valid ? 'LINK_INCONSISTENT' : link.project.archivedAt ? 'PROJECT_ARCHIVED' : 'IMPORTED',
-        projectId: link.project.id,
+        status: !valid ? 'LINK_INCONSISTENT' : link.product?.archivedAt ? 'PROJECT_ARCHIVED' : 'IMPORTED',
+        projectId: link.product?.projectId ?? link.projectId,
       });
     }
     for (const publication of publications) {
       const gid = `gid://shopify/Product/${publication.shopifyProductId}`;
-      if (!result.has(gid) && !publication.project.shopifyProductImportLink) {
+      if (!result.has(gid) && !publication.product?.shopifyProductImportLink) {
         result.set(gid, {
-          status: publication.project.archivedAt ? 'PROJECT_ARCHIVED' : 'RECOVERABLE_LINK',
-          projectId: publication.project.id,
+          status: publication.product?.archivedAt ? 'PROJECT_ARCHIVED' : 'RECOVERABLE_LINK',
+          projectId: publication.product?.projectId ?? publication.projectId,
         });
       }
     }

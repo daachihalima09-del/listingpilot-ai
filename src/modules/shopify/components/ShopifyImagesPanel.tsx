@@ -11,7 +11,7 @@ import {
   Upload,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type {
   ShopifyImageConfigurationDto,
 } from '../images/image-repository';
@@ -19,23 +19,33 @@ import {
   createShopifyImageClient,
   ShopifyImageClientError,
 } from '../images/shopify-image-client';
+import {
+  parseProductImageImportResponse,
+  type ProductSourceImageDto,
+} from '@/modules/product-images/product-image-client-contract';
 
-type Activity = 'idle' | 'adding' | 'uploading' | 'saving' | 'publishing' | 'refreshing';
+type Activity = 'idle' | 'adding' | 'finding' | 'uploading' | 'saving' | 'publishing' | 'refreshing';
 
 export function ShopifyImagesPanel({
   projectId,
+  containerProjectId,
+  workspaceId,
   configured,
   connected,
   canManage,
   hasPublishedProduct,
   initialConfiguration,
+  onNext,
 }: {
   projectId: string;
+  containerProjectId: string;
+  workspaceId: string;
   configured: boolean;
   connected: boolean;
   canManage: boolean;
   hasPublishedProduct: boolean;
   initialConfiguration: ShopifyImageConfigurationDto;
+  onNext: () => void;
 }) {
   const client = useRef(createShopifyImageClient());
   const locked = useRef(false);
@@ -45,7 +55,73 @@ export function ShopifyImagesPanel({
   const [activity, setActivity] = useState<Activity>('idle');
   const [dirty, setDirty] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
-  const ready = configured && connected && hasPublishedProduct && canManage;
+  const [sources, setSources] = useState<ProductSourceImageDto[]>([]);
+  const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
+  const shopifyReady = configured && connected && canManage;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch(`/api/projects/${encodeURIComponent(containerProjectId)}/products/${encodeURIComponent(projectId)}/images/sources?workspaceId=${encodeURIComponent(workspaceId)}`, { signal: controller.signal })
+      .then(async (response) => {
+        const body = await response.json() as { sources?: typeof sources; error?: { message?: string } };
+        if (!response.ok) throw new Error(body.error?.message ?? 'Source images could not be loaded.');
+        setSources(body.sources ?? []);
+      })
+      .catch((error) => { if (error instanceof Error && error.name !== 'AbortError') setFeedback(error.message); });
+    return () => controller.abort();
+  }, [containerProjectId, projectId, workspaceId]);
+
+  async function importSelectedSources() {
+    if (!selectedSourceIds.length || locked.current) return;
+    locked.current = true;
+    setActivity('adding');
+    setFeedback(null);
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(containerProjectId)}/products/${encodeURIComponent(projectId)}/images/sources`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ workspaceId, sourceImageIds: selectedSourceIds }),
+      });
+      const body = await response.json() as { error?: { message?: string } };
+      if (!response.ok) throw new Error(body.error?.message ?? 'Selected images could not be imported.');
+      const imported = parseProductImageImportResponse(body);
+      setConfiguration(imported.configuration);
+      setSources(imported.sources);
+      setSelectedSourceIds([]);
+      setFeedback(`${selectedSourceIds.length} source ${selectedSourceIds.length === 1 ? 'image' : 'images'} imported.`);
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Selected images could not be imported.');
+    } finally {
+      locked.current = false;
+      setActivity('idle');
+    }
+  }
+
+  async function findImagesFromSource() {
+    if (locked.current || !canManage) return;
+    locked.current = true;
+    setActivity('finding');
+    setFeedback(null);
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(containerProjectId)}/products/${encodeURIComponent(projectId)}/images/sources`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ workspaceId }),
+      });
+      const body = await response.json() as { sources?: typeof sources; error?: { message?: string } };
+      if (!response.ok) throw new Error(body.error?.message ?? 'Source images could not be found.');
+      setSources(body.sources ?? []);
+      setSelectedSourceIds([]);
+      setFeedback(body.sources?.length
+        ? `${body.sources.length} source ${body.sources.length === 1 ? 'image' : 'images'} found.`
+        : 'No usable product images were found on the saved source page.');
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Source images could not be found.');
+    } finally {
+      locked.current = false;
+      setActivity('idle');
+    }
+  }
 
   function edit(localId: string, changes: Partial<
     ShopifyImageConfigurationDto['images'][number]
@@ -91,14 +167,25 @@ export function ShopifyImagesPanel({
       setConfiguration(await operation());
       setDirty(false);
       setFeedback(message);
+      return true;
     } catch (error) {
       setFeedback(error instanceof ShopifyImageClientError
         ? error.message
         : 'The image operation could not be completed.');
+      return false;
     } finally {
       locked.current = false;
       setActivity('idle');
     }
+  }
+
+  async function saveAndNext() {
+    if (!dirty) { onNext(); return; }
+    const saved = await run('saving', () => client.current.save(projectId, {
+      version: configuration.version,
+      images: configuration.images.map((image, position) => ({ localId: image.localId, altText: image.altText, position, isPrimary: image.isPrimary, active: true })),
+    }), 'Image configuration saved.');
+    if (saved) onNext();
   }
 
   function save() {
@@ -133,7 +220,7 @@ export function ShopifyImagesPanel({
     }
   }
 
-  const disabled = !ready || activity !== 'idle';
+  const disabled = !shopifyReady || activity !== 'idle';
   return (
     <section
       aria-labelledby="shopify-images-heading"
@@ -159,12 +246,8 @@ export function ShopifyImagesPanel({
 
       {!configured || !connected ? (
         <div className="mt-5 rounded-xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-100">
-          Connect Shopify before managing images.{' '}
+          You can organize Product images now. Connect Shopify when you are ready to publish them.{' '}
           <Link href="/settings/shopify" className="font-semibold underline">Open settings</Link>
-        </div>
-      ) : !hasPublishedProduct ? (
-        <div className="mt-5 rounded-xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-100">
-          Publish this product to Shopify before adding images.
         </div>
       ) : !canManage ? (
         <div className="mt-5 rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
@@ -172,7 +255,22 @@ export function ShopifyImagesPanel({
         </div>
       ) : null}
 
-      <div className="mt-5 flex flex-wrap gap-2">
+      <div className="mt-6 border-t border-white/10 pt-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><h3 className="font-semibold text-white">Images found from source</h3><p className="mt-1 text-sm text-slate-400">Choose the product images you want ListingPilot to manage.</p></div>
+          <div className="flex flex-wrap gap-2"><button type="button" disabled={!canManage || activity !== 'idle'} onClick={() => void findImagesFromSource()} className="rounded-lg border border-white/15 px-3 py-2 text-sm disabled:opacity-40">Find images from source</button><button type="button" disabled={!canManage || !sources.some(({ status }) => status === 'DETECTED')} onClick={() => setSelectedSourceIds(sources.filter(({ status }) => status === 'DETECTED').map(({ id }) => id))} className="rounded-lg border border-white/15 px-3 py-2 text-sm disabled:opacity-40">Select all</button><button type="button" disabled={!canManage || !selectedSourceIds.length || activity !== 'idle'} onClick={() => void importSelectedSources()} className="rounded-lg bg-amber-300 px-3 py-2 text-sm font-semibold text-slate-950 disabled:opacity-40">Import selected</button></div>
+        </div>
+        {sources.length ? <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{sources.map((source) => <label key={source.id} className={`overflow-hidden rounded-xl border p-3 ${source.status === 'IMPORTED' ? 'border-emerald-400/20 bg-emerald-400/5' : 'border-white/10 bg-white/[0.03]'}`}>
+          <div className="relative aspect-square overflow-hidden rounded-lg bg-white/5">
+            {/* Preview URLs are authenticated same-origin routes with validated image responses. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={source.previewUrl} alt={source.altText ?? 'Detected product image'} className="h-full w-full object-contain" />
+          </div>
+          <div className="mt-3 flex items-start gap-2"><input type="checkbox" disabled={!canManage || source.status === 'IMPORTED'} checked={selectedSourceIds.includes(source.id)} onChange={() => setSelectedSourceIds((current) => current.includes(source.id) ? current.filter((id) => id !== source.id) : [...current, source.id])} className="mt-1 accent-amber-300" /><div className="min-w-0 text-xs text-slate-400"><p className="font-semibold text-slate-200">{source.status === 'IMPORTED' ? 'Imported ✓' : source.sourceKind.replaceAll('_', ' ').toLocaleLowerCase()}</p><p>{source.width && source.height ? `${source.width} × ${source.height}` : 'Dimensions checked on import'}</p><p className={source.quality === 'GOOD' ? 'text-emerald-300' : 'text-amber-300'}>{source.quality === 'GOOD' ? 'Good' : source.quality === 'LOW_RESOLUTION' ? 'Low resolution' : 'Needs attention'}</p></div></div>
+        </label>)}</div> : <div className="mt-4 rounded-xl border border-dashed border-white/15 p-5 text-sm text-slate-400">Analyze a Product URL or Supplier URL to find source images.</div>}
+      </div>
+
+      <div className="mt-6 border-t border-white/10 pt-6"><h3 className="font-semibold text-white">Add images</h3><div className="mt-3 flex flex-wrap gap-2">
         <input
           value={remoteUrl}
           onChange={(event) => setRemoteUrl(event.target.value)}
@@ -219,9 +317,9 @@ export function ShopifyImagesPanel({
         >
           <Upload className="h-4 w-4" aria-hidden="true" /> Upload image
         </button>
-      </div>
+      </div></div>
 
-      <div className="mt-5 space-y-3">
+      <div className="mt-6 border-t border-white/10 pt-6"><h3 className="font-semibold text-white">Product images</h3><div className="mt-4 space-y-3">
         {configuration.images.length === 0 ? (
           <div className="rounded-xl border border-dashed border-white/15 p-5 text-sm text-slate-400">
             No images configured.
@@ -242,7 +340,10 @@ export function ShopifyImagesPanel({
                 <span>{image.sourceType === 'REMOTE_URL' ? 'Remote URL' : 'Local upload'}</span>
                 <span>{image.status.toLocaleLowerCase()}</span>
                 {image.isPrimary ? <span className="text-amber-300">Primary</span> : null}
+                <span>{image.width && image.height ? `${image.width} × ${image.height}` : 'Dimensions unavailable'}</span>
+                <span>{image.mimeType.replace('image/', '').toUpperCase()}</span>
               </div>
+              <p className={`mt-1 text-xs ${image.quality === 'GOOD' ? 'text-emerald-300' : 'text-amber-300'}`}>{image.quality === 'GOOD' ? 'Good' : image.quality === 'LOW_RESOLUTION' ? 'Low resolution' : 'Needs attention'}{image.qualityWarning ? ` — ${image.qualityWarning}` : ''}</p>
               <input
                 value={image.altText ?? ''}
                 disabled={disabled}
@@ -284,16 +385,18 @@ export function ShopifyImagesPanel({
             </div>
           </div>
         ))}
-      </div>
+      </div></div>
 
       <p className="mt-4 text-xs leading-5 text-slate-500">
         Primary order applies among ListingPilot-managed images only; unrelated Shopify media keep their relative positions. Removing here does not delete media from Shopify.
       </p>
+      <div className="mt-6 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-sm"><h3 className="font-semibold text-white">Image quality</h3><p className="mt-1 text-slate-400">{configuration.images.filter(({ quality }) => quality === 'GOOD').length} images ready · {configuration.images.filter(({ quality }) => quality !== 'GOOD').length} need attention</p></div>
       <div className="mt-5 flex flex-wrap gap-2">
         <button type="button" disabled={disabled || !dirty} onClick={save} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-white/15 px-4 text-sm font-semibold text-white disabled:opacity-50">
-          {activity === 'saving' ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save configuration
+          {activity === 'saving' ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save
         </button>
-        <button type="button" disabled={disabled || dirty || !configuration.images.length} onClick={() => void publish()} className="min-h-11 rounded-xl bg-amber-400 px-4 text-sm font-semibold text-slate-950 disabled:opacity-50">
+        <button type="button" disabled={disabled} onClick={() => void saveAndNext()} className="min-h-11 rounded-xl bg-amber-300 px-4 text-sm font-semibold text-slate-950 disabled:opacity-50">Save &amp; Next →</button>
+        <button type="button" disabled={disabled || !hasPublishedProduct || dirty || !configuration.images.length} onClick={() => void publish()} className="min-h-11 rounded-xl border border-white/15 px-4 text-sm font-semibold text-white disabled:opacity-50">
           Publish images
         </button>
         <button type="button" disabled={disabled} onClick={() => void run('refreshing', () => client.current.refresh(projectId), 'Shopify image status refreshed.')} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-white/15 px-4 text-sm text-white disabled:opacity-50">

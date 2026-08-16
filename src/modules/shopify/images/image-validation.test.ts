@@ -5,6 +5,7 @@ import {
   remoteImageInputSchema,
   uploadInitiationInputSchema,
   validateImageBytes,
+  imageQuality,
 } from './image-validation.ts';
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -61,6 +62,19 @@ test('server validates signatures and generates stable SHA-256 hashes', () => {
     bytes: new Uint8Array(),
     declaredMimeType: 'image/png',
   }));
+});
+
+test('deterministic image metadata reports dimensions and honest quality states', () => {
+  const dimensionedPng = Uint8Array.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52,
+    0, 0, 0x06, 0x40, 0, 0, 0x04, 0xb0,
+  ]);
+  const metadata = validateImageBytes({ bytes: dimensionedPng, declaredMimeType: 'image/png' });
+  assert.deepEqual({ width: metadata.width, height: metadata.height }, { width: 1600, height: 1200 });
+  assert.equal(imageQuality(metadata).status, 'GOOD');
+  assert.equal(imageQuality({ width: 500, height: 500, byteSize: 100 }).status, 'LOW_RESOLUTION');
+  assert.equal(imageQuality({ width: null, height: null, byteSize: 100 }).status, 'NEEDS_ATTENTION');
 });
 
 test('configuration enforces count, unique ordering, and one primary first', () => {

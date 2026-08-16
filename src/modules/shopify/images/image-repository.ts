@@ -15,6 +15,10 @@ export interface PersistedShopifyImage extends LocalShopifyImage {
   firstPublishedAt: Date | null;
   lastPublishedAt: Date | null;
   lastErrorCategory: string | null;
+  width: number | null;
+  height: number | null;
+  sourceProvenance: string | null;
+  sourcePageUrl: string | null;
 }
 
 export interface PersistedImageConfiguration {
@@ -44,6 +48,10 @@ export interface ShopifyImageConfigurationDto {
     filename: string | null;
     mimeType: ShopifyImageMimeType;
     byteSize: number;
+    width: number | null;
+    height: number | null;
+    quality: 'GOOD' | 'NEEDS_ATTENTION' | 'LOW_RESOLUTION';
+    qualityWarning: string | null;
     altText: string | null;
     position: number;
     isPrimary: boolean;
@@ -100,7 +108,13 @@ export interface ShopifyImageRepository {
     mimeType: ShopifyImageMimeType;
     byteSize: number;
     contentHash: string;
+    width: number | null;
+    height: number | null;
+    sourceProvenance?: string | null;
+    sourcePageUrl?: string | null;
+    sourceImageId?: string;
     altText: string | null;
+    initialStatus?: PersistedShopifyImage['status'];
   }): Promise<string>;
   persistCreatedFile(input: {
     context: ShopifyImageProjectContext;
@@ -157,4 +171,3 @@ export interface ShopifyImageRepository {
     };
   }): Promise<void>;
 }
-

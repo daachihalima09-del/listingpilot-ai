@@ -27,7 +27,7 @@ function display(value: unknown) {
   return String(value);
 }
 
-export function SafeShopifyPublishingClient({ projectId, initial }: { projectId: string; initial: PlanView | null }) {
+export function SafeShopifyPublishingClient({ projectId, containerProjectId, initial }: { projectId: string; containerProjectId?: string; initial: PlanView | null }) {
   const router = useRouter();
   const [busy, setBusy] = useState<'prepare' | 'refresh' | 'save' | 'publish' | null>(null);
   const [error, setError] = useState('');
@@ -55,7 +55,10 @@ export function SafeShopifyPublishingClient({ projectId, initial }: { projectId:
   }, [initial]);
 
   async function request(path: string, method: 'POST' | 'PATCH', body: unknown) {
-    const response = await fetch(`/api/projects/${projectId}/shopify-publish${path}`, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const apiBase = containerProjectId
+      ? `/api/projects/${containerProjectId}/products/${projectId}`
+      : `/api/projects/${projectId}`;
+    const response = await fetch(`${apiBase}/shopify-publish${path}`, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const value = await response.json() as { id?: string; error?: { message?: string }; outcome?: string; completedOperations?: string[]; productGid?: string | null };
     if (!response.ok) throw new Error(value.error?.message ?? 'Shopify publishing needs attention.');
     return value;
@@ -69,7 +72,10 @@ export function SafeShopifyPublishingClient({ projectId, initial }: { projectId:
       const response = await request('/prepare', 'POST', { intent });
       const nextPlanId = response.id!;
       setPendingPlanId(nextPlanId);
-      router.replace(`/workspace/${projectId}/shopify-publish?planId=${encodeURIComponent(nextPlanId)}`);
+      const workspaceBase = containerProjectId
+        ? `/workspace/${containerProjectId}/products/${projectId}`
+        : `/workspace/${projectId}`;
+      router.replace(`${workspaceBase}/shopify-publish?planId=${encodeURIComponent(nextPlanId)}`);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'The plan could not be prepared.'); }
     finally { preparingRef.current = false; setBusy(null); }
   }
@@ -142,7 +148,7 @@ export function SafeShopifyPublishingClient({ projectId, initial }: { projectId:
         <button type="button" onClick={() => void prepare(plan!.mode === 'CREATE_NEW' ? 'CREATE_NEW' : 'REVIEW')} disabled={Boolean(busy)} className="rounded-xl border border-white/15 px-4 py-2.5 font-semibold">{busy === 'prepare' ? 'Refreshing…' : 'Refresh Comparison'}</button>
         <button type="button" onClick={() => void save()} disabled={Boolean(busy) || Boolean(pendingPlanId) || initial.stale || plan!.blockers.length > 0} className="rounded-xl border border-white/15 px-4 py-2.5 font-semibold">{busy === 'save' ? 'Saving…' : 'Save Review'}</button>
         <button type="button" onClick={() => setShowConfirmation(true)} disabled={Boolean(busy) || Boolean(pendingPlanId) || selected.length === 0 || initial.stale || plan!.blockers.length > 0 || (plan!.duplicateAssessment.result === 'POSSIBLE_MATCH' && !duplicateReviewed) || result !== null} className="rounded-xl bg-emerald-300 px-5 py-2.5 font-semibold text-slate-950 disabled:opacity-40">{plan!.mode === 'CREATE_NEW' ? 'Create as Draft' : 'Publish Selected Changes'}</button>
-        <Link href={`/workspace/${projectId}`} className="rounded-xl px-4 py-2.5 text-slate-400">Cancel</Link>
+        <Link href={containerProjectId ? `/workspace/${containerProjectId}/products/${projectId}` : `/workspace/${projectId}`} className="rounded-xl px-4 py-2.5 text-slate-400">Cancel</Link>
       </div>
 
       {showConfirmation ? <div role="dialog" aria-modal="true" aria-labelledby="publish-confirm-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"><div className="w-full max-w-lg rounded-2xl border border-white/15 bg-[#091522] p-6 shadow-2xl"><h2 id="publish-confirm-title" className="text-xl font-semibold">Confirm Shopify changes</h2><p className="mt-2 text-sm text-slate-400">Only the {selected.length} selected changes will be sent. Inventory and collection structure remain untouched.</p>{highImpact.length || plan!.mode === 'CREATE_NEW' ? <div className="mt-4 rounded-xl border border-rose-300/15 bg-rose-300/[0.05] p-4"><p className="font-medium text-rose-100">High-impact confirmation</p><ul className="mt-2 space-y-1 text-sm text-rose-100">{plan!.mode === 'CREATE_NEW' ? <li>• Create one new Shopify product as Draft</li> : null}{highImpact.map((change) => <li key={change.fieldId}>• {change.displayName}: {display(change.currentValue)} → {display(change.proposedValue)}</li>)}</ul></div> : null}<div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setShowConfirmation(false)} className="rounded-xl border border-white/15 px-4 py-2.5">Go back</button><button type="button" onClick={() => void publish()} disabled={busy === 'publish'} className="rounded-xl bg-emerald-300 px-5 py-2.5 font-semibold text-slate-950">{busy === 'publish' ? 'Publishing…' : plan!.mode === 'CREATE_NEW' ? 'Confirm Create as Draft' : 'Confirm Publish'}</button></div></div></div> : null}

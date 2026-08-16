@@ -75,7 +75,7 @@ function configuration(record: {
 
 export const prismaShopifyMetafieldRepository: ShopifyMetafieldRepository = {
   async resolveProject(actorUserId, projectId) {
-    const project = await prisma.project.findFirst({
+    const project = await prisma.product.findFirst({
       where: {
         id: projectId,
         workspace: {
@@ -149,7 +149,7 @@ export const prismaShopifyMetafieldRepository: ShopifyMetafieldRepository = {
       const existing = await transaction.shopifyMetafieldConfiguration.findFirst({
         where: {
           workspaceId: input.context.workspaceId,
-          projectId: input.context.projectId,
+          productId: input.context.projectId,
         },
       });
       if ((existing?.version ?? 0) !== input.version) return false;
@@ -164,7 +164,8 @@ export const prismaShopifyMetafieldRepository: ShopifyMetafieldRepository = {
         : await transaction.shopifyMetafieldConfiguration.create({
             data: {
               workspaceId: input.context.workspaceId,
-              projectId: input.context.projectId,
+              productId: input.context.projectId,
+              projectId: (await transaction.product.findUniqueOrThrow({ where: { id: input.context.projectId }, select: { projectId: true } })).projectId,
               schemaVersion: SHOPIFY_METAFIELD_CATALOG_VERSION,
             },
           });

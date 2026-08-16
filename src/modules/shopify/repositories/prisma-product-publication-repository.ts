@@ -28,6 +28,7 @@ function toReference(record: {
 
 function publicationCreateData(input: {
   projectId: string;
+  containerProjectId: string;
   workspaceId: string;
   product: {
     id: string;
@@ -38,7 +39,8 @@ function publicationCreateData(input: {
   publishedAt: Date;
 }) {
   return {
-    projectId: input.projectId,
+    projectId: input.containerProjectId,
+    productId: input.projectId,
     workspaceId: input.workspaceId,
     shopifyProductId: input.product.id,
     shopifyHandle: input.product.handle,
@@ -72,7 +74,7 @@ function publicationUpdateData(input: {
 export const prismaShopifyProductPublicationRepository:
 ShopifyProductPublicationRepository = {
   async resolveProject(actorUserId, projectId) {
-    const project = await prisma.project.findFirst({
+    const project = await prisma.product.findFirst({
       where: {
         id: projectId,
         archivedAt: null,
@@ -142,21 +144,24 @@ ShopifyProductPublicationRepository = {
 
   async findForProject(workspaceId, projectId) {
     const publication = await prisma.shopifyProductPublication.findFirst({
-      where: { workspaceId, projectId },
+      where: { workspaceId, productId: projectId },
     });
     return publication ? toReference(publication) : null;
   },
 
   async save({ workspaceId, projectId, product, publishedAt }) {
+    const owner = await prisma.product.findFirst({ where: { id: projectId, workspaceId }, select: { projectId: true } });
+    if (!owner) throw new Error('Product ownership could not be verified.');
     const publication = await prisma.shopifyProductPublication.upsert({
       where: {
-        projectId_workspaceId: {
-          projectId,
+        productId_workspaceId: {
+          productId: projectId,
           workspaceId,
         },
       },
       create: publicationCreateData({
         projectId,
+        containerProjectId: owner.projectId,
         workspaceId,
         product,
         publishedAt,
@@ -172,14 +177,16 @@ ShopifyProductPublicationRepository = {
 
   async saveCreated(input) {
     return prisma.$transaction(async (transaction) => {
+      const owner = await transaction.product.findFirst({ where: { id: input.projectId, workspaceId: input.workspaceId }, select: { projectId: true } });
+      if (!owner) throw new Error('Product ownership could not be verified.');
       const publication = await transaction.shopifyProductPublication.upsert({
         where: {
-          projectId_workspaceId: {
-            projectId: input.projectId,
+          productId_workspaceId: {
+            productId: input.projectId,
             workspaceId: input.workspaceId,
           },
         },
-        create: publicationCreateData(input),
+        create: publicationCreateData({ ...input, containerProjectId: owner.projectId }),
         update: publicationUpdateData(input),
       });
       await transaction.auditLog.create({

@@ -86,6 +86,15 @@ class PrismaProjectTransaction implements ProjectRepositoryTransaction {
         sourceType: input.sourceType as PrismaProjectSourceType | null,
         sourceUrl: input.sourceUrl,
         rawInput: input.rawInput,
+        products: {
+          create: {
+            workspace: { connect: { id: input.workspaceId } },
+            name: input.name,
+            sourceType: input.sourceType as PrismaProjectSourceType | null,
+            sourceUrl: input.sourceUrl,
+            rawInput: input.rawInput,
+          },
+        },
       },
     });
   }

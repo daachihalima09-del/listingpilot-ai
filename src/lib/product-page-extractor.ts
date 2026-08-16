@@ -5,6 +5,7 @@ import { lookup } from 'node:dns/promises';
 import { request as httpRequest, type IncomingHttpHeaders, type IncomingMessage } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { isIP, type LookupFunction } from 'node:net';
+import { extractSourceImageCandidates } from '@/modules/product-images/source-image-detection';
 
 const MAX_REDIRECTS = 3;
 const MAX_HTML_BYTES = 2_000_000;
@@ -12,12 +13,15 @@ const MAX_EXTRACTED_CHARACTERS = 60_000;
 const FETCH_TIMEOUT_MS = 20_000;
 
 export class ProductPageExtractionError extends Error {
+  readonly status: 422 | 502 | 504;
+
   constructor(
     message: string,
-    readonly status: 422 | 502 | 504 = 422,
+    status: 422 | 502 | 504 = 422,
   ) {
     super(message);
     this.name = 'ProductPageExtractionError';
+    this.status = status;
   }
 }
 
@@ -348,6 +352,7 @@ export async function extractProductPage(urlValue: string, requestSignal?: Abort
       return {
         finalUrl: currentUrl.href,
         pageText: buildExtractedPageText(html, currentUrl.href),
+        sourceImages: extractSourceImageCandidates(html, currentUrl.href),
       };
     }
 

@@ -73,6 +73,8 @@ const workspaceTabs = [
   { id: 'OVERVIEW', label: 'Overview' },
   { id: 'LISTING', label: 'Listing' },
   { id: 'REVIEW', label: 'Review' },
+  { id: 'IMAGES', label: 'Images' },
+  { id: 'METAFIELDS', label: 'Metafields' },
   { id: 'SHOPIFY', label: 'Shopify' },
   { id: 'ADVANCED', label: 'Advanced' },
 ] as const;
@@ -318,6 +320,12 @@ export function ListingWorkspace({
   shopifyImages,
 }: ListingWorkspaceProps) {
   const router = useRouter();
+  const productApiBase = initialProject?.containerProjectId
+    ? `/api/projects/${initialProject.containerProjectId}/products/${initialProject.id}`
+    : initialProject ? `/api/projects/${initialProject.id}` : null;
+  const productWorkspaceBase = initialProject?.containerProjectId
+    ? `/workspace/${initialProject.containerProjectId}/products/${initialProject.id}`
+    : initialProject ? `/workspace/${initialProject.id}` : null;
   const analysisRequestRef = useRef<AbortController | null>(null);
   const generationRequestRef = useRef(false);
   const eligibilityRequestRef = useRef<{ key: string; controller: AbortController } | null>(null);
@@ -405,7 +413,6 @@ export function ListingWorkspace({
         : ''
       : demoProductSpecifications,
   );
-  const [useDemoFallback, setUseDemoFallback] = useState(false);
   const [supplierUrl, setSupplierUrl] = useState(
     initialProject?.sourceType === 'SUPPLIER_URL'
       ? initialProject.sourceUrl ?? ''
@@ -647,20 +654,6 @@ export function ListingWorkspace({
     setInputError(null);
     resetAnalysisResults();
 
-    const useLiveAnalysis = analysisInput.kind !== 'raw-specifications' || !useDemoFallback;
-
-    if (!useLiveAnalysis) {
-      startPipeline(
-        demoProduct,
-        buildDemoListingContent(demoProduct),
-        {
-          sourceLabel: 'Raw specifications',
-          notice: 'Deterministic demo analysis loaded by request',
-        },
-      );
-      return;
-    }
-
     setIsSubmitting(true);
     const requestController = new AbortController();
     analysisRequestRef.current = requestController;
@@ -669,20 +662,30 @@ export function ListingWorkspace({
     try {
       const requestBody = analysisInput.kind === 'raw-specifications'
         ? { source: 'raw-specifications' as const, specifications: specText.trim() }
-        : { source: analysisInput.kind, url: analysisInput.url };
+        : {
+            source: analysisInput.kind,
+            url: analysisInput.url,
+            ...(initialProject?.containerProjectId ? {
+              productIdentity: {
+                workspaceId: initialProject.workspaceId,
+                projectId: initialProject.containerProjectId,
+                productId: initialProject.id,
+              },
+            } : {}),
+          };
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
         signal: requestController.signal,
       });
-      let payload: ProductAnalysis | { error?: string };
+      let payload: (ProductAnalysis & { imageDiscoveryWarning?: string }) | { error?: string };
       try {
         const decodedPayload = await response.json() as unknown;
         if (!decodedPayload || typeof decodedPayload !== 'object' || Array.isArray(decodedPayload)) {
           throw new Error('INVALID_RESPONSE');
         }
-        payload = decodedPayload as ProductAnalysis | { error?: string };
+        payload = decodedPayload as (ProductAnalysis & { imageDiscoveryWarning?: string }) | { error?: string };
       } catch {
         throw new AnalysisRequestError('The analysis service returned an invalid response. Please try again.');
       }
@@ -693,7 +696,7 @@ export function ListingWorkspace({
           : 'Unable to analyze the product input.');
       }
 
-      const analysis = payload as ProductAnalysis;
+      const analysis = payload as ProductAnalysis & { imageDiscoveryWarning?: string };
       const sourceName = analysisInput.kind === 'raw-specifications'
         ? 'Pasted specifications'
         : analysisInput.url;
@@ -720,6 +723,9 @@ export function ListingWorkspace({
             : `OpenAI analysis generated from the extracted ${sourceType.toLowerCase()}`,
         },
       );
+      if ('imageDiscoveryWarning' in analysis && analysis.imageDiscoveryWarning) {
+        setInputError(analysis.imageDiscoveryWarning);
+      }
     } catch (error) {
       setInputError(error instanceof Error && error.name === 'AbortError'
         ? 'The analysis request timed out. Please try again.'
@@ -733,16 +739,6 @@ export function ListingWorkspace({
         setIsSubmitting(false);
       }
     }
-  };
-
-  const handleLoadDemoProduct = () => {
-    if (isReadOnly) {
-      return;
-    }
-    setInputMode('specs');
-    setSpecText(demoProductSpecifications);
-    setUseDemoFallback(true);
-    setInputError(null);
   };
 
   const handleResolveConflict = () => {
@@ -909,7 +905,7 @@ export function ListingWorkspace({
       || generationEligibilityVersion === projectSave.currentVersion
     ) return;
 
-    const requestKey = `${projectId}:${projectSave.currentVersion}:${eligibilityRetryToken}`;
+    const requestKey = `${productApiBase}:${projectSave.currentVersion}:${eligibilityRetryToken}`;
     if (eligibilityRequestRef.current?.key === requestKey) return;
     eligibilityRequestRef.current?.controller.abort();
     const controller = new AbortController();
@@ -919,7 +915,7 @@ export function ListingWorkspace({
     void projectApiRequest<{
       eligibility: CanonicalGenerationEligibility;
       projectVersion: number;
-    }>(`/api/projects/${projectId}/listing-draft?workspaceId=${encodeURIComponent(projectWorkspaceId)}`, {
+    }>(`${productApiBase}/listing-draft?workspaceId=${encodeURIComponent(projectWorkspaceId)}`, {
       method: 'GET',
       timeoutMs: ELIGIBILITY_TIMEOUT_MS,
       timeoutMessage: 'Could not refresh listing readiness.',
@@ -947,6 +943,7 @@ export function ListingWorkspace({
     generationEligibilityVersion,
     projectId,
     projectWorkspaceId,
+    productApiBase,
     listingDraft,
     projectSave.currentVersion,
   ]);
@@ -982,7 +979,7 @@ export function ListingWorkspace({
         readinessData: NonNullable<ProjectSaveSnapshot['readinessData']>;
         project: { version: number; updatedAt: string };
       }>(
-        `/api/projects/${initialProject.id}/listing-draft`,
+        `${productApiBase}/listing-draft`,
         {
           method: 'POST',
           body: { workspaceId: initialProject.workspaceId, version: authoritativeVersion },
@@ -1038,7 +1035,7 @@ export function ListingWorkspace({
       const response = await projectApiRequest<{
         draft: ListingDraftInput;
         project: { version: number; updatedAt: string };
-      }>(`/api/projects/${initialProject.id}/listing-draft`, {
+      }>(`${productApiBase}/listing-draft`, {
         method: 'PATCH',
         body: {
           workspaceId: initialProject.workspaceId,
@@ -1114,7 +1111,7 @@ export function ListingWorkspace({
       const response = await projectApiRequest<{
         draft: ListingDraftInput;
         project: { version: number; updatedAt: string };
-      }>(`/api/projects/${initialProject.id}/listing-draft`, {
+      }>(`${productApiBase}/listing-draft`, {
         method: 'PUT',
         body: {
           workspaceId: initialProject.workspaceId,
@@ -1205,6 +1202,11 @@ export function ListingWorkspace({
               </div>
             </div>
             <nav className="flex flex-wrap items-center justify-end gap-2 text-sm text-slate-300">
+              {initialProject?.containerProjectId ? (
+                <Link href={`/workspace/${initialProject.containerProjectId}?${new URLSearchParams({ organizationId: initialProject.organizationId, workspaceId: initialProject.workspaceId })}`} className="rounded-full px-3 py-2 transition hover:bg-white/10 hover:text-white">
+                  Products
+                </Link>
+              ) : null}
               <Link href="/about" className="rounded-full px-3 py-2 transition hover:bg-white/10 hover:text-white">
                 About
               </Link>
@@ -1286,7 +1288,6 @@ export function ListingWorkspace({
                 specText={specText}
                 onSpecTextChange={(value) => {
                   setSpecText(value);
-                  setUseDemoFallback(false);
                   setInputError(null);
                 }}
                 supplierUrl={supplierUrl}
@@ -1294,7 +1295,6 @@ export function ListingWorkspace({
                 onUrlChange={handleUrlChange}
                 selectedPdf={selectedPdf}
                 onPdfChange={handlePdfChange}
-                onLoadDemoProduct={handleLoadDemoProduct}
                 inputError={inputError}
                 readOnly={isReadOnly}
               />
@@ -1338,7 +1338,11 @@ export function ListingWorkspace({
 
           {workspaceTab === 'REVIEW' ? <section id="workspace-panel-review" role="tabpanel" aria-labelledby="workspace-tab-review" className="mt-6 min-w-0 space-y-6"><div className="grid min-w-0 gap-6 lg:grid-cols-2"><AIDetective product={currentProduct} hasConflict={hasConflict} conflictResolved={conflictResolved} onResolve={handleResolveConflict} visibleSourcesCount={showSources} recommendationConfidence={recommendationConfidence} showRecommendation={showRecommendation} readOnly={isReadOnly} /><CatalogHealth product={{ ...currentProduct, catalogHealth: { ...currentProduct.catalogHealth, score: overview.score, label: overview.label, items: overview.items } }} /><section aria-label="Product Truth summary" className="rounded-[1.75rem] border border-white/10 bg-[#081423] p-5"><h2 className="text-lg font-semibold text-white">Product Truth</h2><p className="mt-2 text-sm text-slate-400">{truthRows.filter(({ status }) => status === 'Verified').length} verified facts · {truthRows.filter(({ status }) => status === 'Conflict').length} conflicts · {truthRows.filter(({ status }) => status !== 'Verified' && status !== 'Conflict').length} items need review</p><p className="mt-3 text-xs text-slate-500">Detailed evidence and field-level diagnostics appear below.</p></section><SourceEvidence sources={currentProduct.sources} /><RecentAnalyses product={currentProduct} /></div>{listingDraft ? <ListingDraftReview view="REVIEW" draft={listingDraft} onChange={setListingDraft} onSave={handleSaveDraft} onRegenerate={handleRegenerateDraft} saving={isSavingDraft} regenerating={regeneratingSection} autosaveStatus={projectSave.message} readOnly={isReadOnly} error={draftError} onOpenListing={() => selectWorkspaceTab('LISTING')} onOpenAdvanced={() => selectWorkspaceTab('ADVANCED')} /> : null}</section> : null}
 
-          {workspaceTab === 'SHOPIFY' ? <div id="workspace-panel-shopify" role="tabpanel" aria-labelledby="workspace-tab-shopify" className="mt-6 space-y-6">{shopifyListingPreview ? <ShopifyListingPreview listing={shopifyListingPreview} notice={listingDraft?.status === 'SAVED' ? 'This is the saved authoritative draft that Safe Publishing will compare with Shopify.' : 'Save the draft before preparing Shopify changes. Safe Publishing always uses the saved authoritative version.'} /> : <section className="rounded-[1.75rem] border border-white/10 bg-[#081423] p-5 sm:p-7"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Shopify Preview</p><h2 className="mt-2 text-2xl font-semibold text-white">Generate a listing to preview Shopify output</h2><p className="mt-2 text-sm text-slate-400">The final title, complete product description, and SEO metadata will appear here.</p></section>}<section className="rounded-[1.75rem] border border-amber-300/20 bg-[#081423] p-5 sm:p-7"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Safe Shopify Publishing</p><h2 className="mt-2 text-2xl font-semibold text-white">Prepare, review, publish, verify</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">Compare the saved draft with the current Shopify product and review every proposed change before anything is published.</p><div className="mt-5 grid gap-3 sm:grid-cols-3">{[['Store', shopifyPublishing?.connected ? 'Connected' : 'Not connected'], ['Product link', shopifyPublishing?.publication ? 'Existing product linked' : 'No published product'], ['Safety', 'Explicit review required']].map(([label, value]) => <div key={label} className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm"><span className="text-slate-500">{label}</span><p className="mt-1 font-medium text-white">{value}</p></div>)}</div>{initialProject ? <Link href={`/workspace/${initialProject.id}/shopify-publish`} className="mt-6 inline-flex rounded-xl bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-200">Prepare for Shopify</Link> : null}</section></div> : null}
+          {workspaceTab === 'IMAGES' && initialProject && shopifyImages && initialProject.containerProjectId ? <div id="workspace-panel-images" role="tabpanel" aria-labelledby="workspace-tab-images" className="mt-6"><ShopifyImagesPanel key={`images-${shopifyPanelGeneration}`} projectId={initialProject.id} containerProjectId={initialProject.containerProjectId} workspaceId={initialProject.workspaceId} configured={shopifyImages.configured} connected={shopifyImages.connected} canManage={shopifyImages.canManage} hasPublishedProduct={hasPublishedShopifyProduct} initialConfiguration={shopifyImages.configuration} onNext={() => selectWorkspaceTab('METAFIELDS')} /></div> : null}
+
+          {workspaceTab === 'METAFIELDS' && initialProject && shopifyMetafields ? <div id="workspace-panel-metafields" role="tabpanel" aria-labelledby="workspace-tab-metafields" className="mt-6"><ShopifyMetafieldsPanel key={`metafields-${shopifyPanelGeneration}`} projectId={initialProject.id} configured={shopifyMetafields.configured} connected={shopifyMetafields.connected} canManage={shopifyMetafields.canManage} hasPublishedProduct={hasPublishedShopifyProduct} initialConfiguration={shopifyMetafields.configuration} /></div> : null}
+
+        {workspaceTab === 'SHOPIFY' ? <div id="workspace-panel-shopify" role="tabpanel" aria-labelledby="workspace-tab-shopify" className="mt-6 space-y-6">{shopifyListingPreview ? <ShopifyListingPreview listing={shopifyListingPreview} notice={listingDraft?.status === 'SAVED' ? 'This is the saved authoritative draft that Safe Publishing will compare with Shopify.' : 'Save the draft before preparing Shopify changes. Safe Publishing always uses the saved authoritative version.'} /> : <section className="rounded-[1.75rem] border border-white/10 bg-[#081423] p-5 sm:p-7"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Shopify Preview</p><h2 className="mt-2 text-2xl font-semibold text-white">Generate a listing to preview Shopify output</h2><p className="mt-2 text-sm leading-6 text-slate-400">The final title, complete product description, and SEO metadata will appear here.</p></section>}<section className="rounded-[1.75rem] border border-amber-300/20 bg-[#081423] p-5 sm:p-7"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Safe Shopify Publishing</p><h2 className="mt-2 text-2xl font-semibold text-white">Prepare, review, publish, verify</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">Compare the saved draft with the current Shopify product and review every proposed change before anything is published.</p><div className="mt-5 grid gap-3 sm:grid-cols-3">{[['Store', shopifyPublishing?.connected ? 'Connected' : 'Not connected'], ['Product link', shopifyPublishing?.publication ? 'Existing product linked' : 'No published product'], ['Safety', 'Explicit review required']].map(([label, value]) => <div key={label} className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm"><span className="text-slate-500">{label}</span><p className="mt-1 font-medium text-white">{value}</p></div>)}</div>{productWorkspaceBase ? <Link href={`${productWorkspaceBase}/shopify-publish`} className="mt-6 inline-flex rounded-xl bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-200">Prepare for Shopify</Link> : null}</section></div> : null}
 
           {workspaceTab === 'ADVANCED' ? <section id="workspace-panel-advanced" role="tabpanel" aria-labelledby="workspace-tab-advanced" className="mt-6"><details className="rounded-2xl border border-white/10 bg-[#081423]"><summary className="cursor-pointer px-5 py-4 font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300">Open technical and legacy tools</summary><div className="border-t border-white/10 p-4"><div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
             <div className="min-w-0 space-y-6">
@@ -1352,7 +1356,6 @@ export function ListingWorkspace({
                 specText={specText}
                 onSpecTextChange={(value) => {
                   setSpecText(value);
-                  setUseDemoFallback(false);
                   setInputError(null);
                 }}
                 supplierUrl={supplierUrl}
@@ -1360,7 +1363,6 @@ export function ListingWorkspace({
                 onUrlChange={handleUrlChange}
                 selectedPdf={selectedPdf}
                 onPdfChange={handlePdfChange}
-                onLoadDemoProduct={handleLoadDemoProduct}
                 inputError={inputError}
                 readOnly={isReadOnly}
               />
@@ -1488,7 +1490,7 @@ export function ListingWorkspace({
                     onAddToGoldLibrary={canManage ? handleAddToGoldLibrary : undefined}
                     addingToGoldLibrary={isAddingGoldFixture}
                   />
-                  {initialProject ? <section className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.05] p-5"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-300">Next step</p><h2 className="mt-2 text-xl font-semibold text-white">Prepare for Shopify</h2><p className="mt-2 text-sm leading-6 text-slate-400">Review fresh Shopify values beside the saved ListingPilot proposal before choosing any changes.</p><Link href={`/workspace/${initialProject.id}/shopify-publish`} className="mt-4 inline-flex rounded-xl bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950">Prepare for Shopify</Link></section> : null}
+                  {productWorkspaceBase ? <section className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.05] p-5"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-300">Next step</p><h2 className="mt-2 text-xl font-semibold text-white">Prepare for Shopify</h2><p className="mt-2 text-sm leading-6 text-slate-400">Review fresh Shopify values beside the saved ListingPilot proposal before choosing any changes.</p><Link href={`${productWorkspaceBase}/shopify-publish`} className="mt-4 inline-flex rounded-xl bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950">Prepare for Shopify</Link></section> : null}
                 </>
               ) : null}
               {initialProject && shopifyCoordinator ? (
@@ -1535,28 +1537,6 @@ export function ListingWorkspace({
                   canManage={shopifyVariants.canManage}
                   hasPublishedProduct={hasPublishedShopifyProduct}
                   initialConfiguration={shopifyVariants.configuration}
-                />
-              ) : null}
-              {initialProject && shopifyMetafields ? (
-                <ShopifyMetafieldsPanel
-                  key={`metafields-${shopifyPanelGeneration}`}
-                  projectId={initialProject.id}
-                  configured={shopifyMetafields.configured}
-                  connected={shopifyMetafields.connected}
-                  canManage={shopifyMetafields.canManage}
-                  hasPublishedProduct={hasPublishedShopifyProduct}
-                  initialConfiguration={shopifyMetafields.configuration}
-                />
-              ) : null}
-              {initialProject && shopifyImages ? (
-                <ShopifyImagesPanel
-                  key={`images-${shopifyPanelGeneration}`}
-                  projectId={initialProject.id}
-                  configured={shopifyImages.configured}
-                  connected={shopifyImages.connected}
-                  canManage={shopifyImages.canManage}
-                  hasPublishedProduct={hasPublishedShopifyProduct}
-                  initialConfiguration={shopifyImages.configuration}
                 />
               ) : null}
               <ProductTruthTable rows={truthRows} visibleCount={visibleRows} />

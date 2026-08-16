@@ -8,6 +8,7 @@ import {
 import { ShopifyImageError } from './image-errors';
 import {
   addRemoteShopifyImage,
+  addManagedRemoteImage,
   completeShopifyImageUpload,
   getShopifyImages,
   initiateShopifyImageUpload,
@@ -61,6 +62,20 @@ export async function addUserRemoteShopifyImage(
     dependencies,
     await context(userId, projectId),
     input,
+  );
+}
+
+export async function addUserManagedRemoteImage(
+  userId: string,
+  productId: string,
+  input: unknown,
+  provenance: { sourceKind: string; sourcePageUrl: string; sourceImageId?: string },
+) {
+  return addManagedRemoteImage(
+    prismaShopifyImageRepository,
+    await context(userId, productId),
+    input,
+    provenance,
   );
 }
 

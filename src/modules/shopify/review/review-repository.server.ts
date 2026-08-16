@@ -8,7 +8,7 @@ import type { ShopifyChangeReviewPayload } from './review-types';
 import { ShopifyReviewError } from './review-errors';
 
 export async function resolveReviewProject(userId: string, projectId: string) {
-  const project = await prisma.project.findFirst({
+  const project = await prisma.product.findFirst({
     where: {
       id: projectId,
       archivedAt: null,
@@ -18,6 +18,7 @@ export async function resolveReviewProject(userId: string, projectId: string) {
     },
     select: {
       id: true,
+      projectId: true,
       workspaceId: true,
       version: true,
       generatedListing: true,
@@ -131,6 +132,7 @@ export async function resolveReviewProject(userId: string, projectId: string) {
     organizationId: project.workspace.organizationId,
     role: membership.role,
     projectId: project.id,
+    containerProjectId: project.projectId,
     workspaceId: project.workspaceId,
     projectVersion: project.version,
     generatedListing: project.generatedListing,
@@ -163,7 +165,7 @@ export async function createReviewRecord(input: {
   return prisma.$transaction(async (transaction) => {
     await transaction.shopifyChangeReview.updateMany({
       where: {
-        projectId: input.context.projectId,
+        productId: input.context.projectId,
         workspaceId: input.context.workspaceId,
         status: 'OPEN',
       },
@@ -171,7 +173,8 @@ export async function createReviewRecord(input: {
     });
     const review = await transaction.shopifyChangeReview.create({
       data: {
-        projectId: input.context.projectId,
+        projectId: input.context.containerProjectId,
+        productId: input.context.projectId,
         workspaceId: input.context.workspaceId,
         shopifyStoreId: input.context.shopifyStoreId,
         createdByUserId: input.context.actorUserId,
@@ -215,8 +218,8 @@ export async function findAuthorizedReview(
   const review = await prisma.shopifyChangeReview.findFirst({
     where: {
       id: reviewId,
-      projectId,
-      project: {
+      productId: projectId,
+      product: {
         workspace: {
           organization: { memberships: { some: { userId } } },
         },

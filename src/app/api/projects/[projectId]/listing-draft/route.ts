@@ -10,7 +10,7 @@ import { createListingGenerationTrace } from '@/modules/listing-draft/persistenc
 const MAX_DRAFT_BODY_BYTES = 768 * 1024;
 
 interface ListingDraftRouteContext {
-  params: Promise<{ projectId: string }>;
+  params: Promise<{ projectId: string; productId?: string }>;
 }
 
 function unauthenticated(): NextResponse {
@@ -21,12 +21,13 @@ export async function GET(request: Request, context: ListingDraftRouteContext): 
   const user = await getCurrentUser();
   if (!user) return unauthenticated();
   try {
-    const { projectId } = await context.params;
+    const { projectId, productId } = await context.params;
     const workspaceId = z.string().uuid().parse(new URL(request.url).searchParams.get('workspaceId'));
     const result = await getProjectListingGenerationEligibility({
       actorUserId: user.id,
       workspaceId,
-      projectId,
+      projectId: productId ?? projectId,
+      containerProjectId: productId ? projectId : undefined,
     });
     return NextResponse.json(result);
   } catch (error) {
@@ -39,13 +40,15 @@ export async function POST(request: Request, context: ListingDraftRouteContext):
   if (!user) return unauthenticated();
   let trace: ReturnType<typeof createListingGenerationTrace> | null = null;
   try {
-    const { projectId } = await context.params;
-    trace = createListingGenerationTrace({ requestId: crypto.randomUUID(), projectId });
+    const { projectId, productId } = await context.params;
+    const activeProductId = productId ?? projectId;
+    trace = createListingGenerationTrace({ requestId: crypto.randomUUID(), projectId: activeProductId });
     const input = generateListingDraftRequestSchema.parse(await readBoundedJsonRequest(request, MAX_DRAFT_BODY_BYTES));
     const result = await generateProjectListingDraft({
       actorUserId: user.id,
       workspaceId: input.workspaceId,
-      projectId,
+      projectId: activeProductId,
+      containerProjectId: productId ? projectId : undefined,
       version: input.version,
       signal: request.signal,
       trace,
@@ -74,9 +77,9 @@ export async function PATCH(request: Request, context: ListingDraftRouteContext)
   const user = await getCurrentUser();
   if (!user) return unauthenticated();
   try {
-    const { projectId } = await context.params;
+    const { projectId, productId } = await context.params;
     const input = saveListingDraftRequestSchema.parse(await readBoundedJsonRequest(request, MAX_DRAFT_BODY_BYTES));
-    const result = await saveProjectListingDraft({ actorUserId: user.id, projectId, ...input });
+    const result = await saveProjectListingDraft({ actorUserId: user.id, projectId: productId ?? projectId, containerProjectId: productId ? projectId : undefined, ...input });
     return NextResponse.json({
       draft: result.draft,
       project: { version: result.project.version, updatedAt: result.project.updatedAt },
@@ -90,11 +93,12 @@ export async function PUT(request: Request, context: ListingDraftRouteContext): 
   const user = await getCurrentUser();
   if (!user) return unauthenticated();
   try {
-    const { projectId } = await context.params;
+    const { projectId, productId } = await context.params;
     const input = regenerateListingDraftRequestSchema.parse(await readBoundedJsonRequest(request, MAX_DRAFT_BODY_BYTES));
     const result = await regenerateProjectListingDraft({
       actorUserId: user.id,
-      projectId,
+      projectId: productId ?? projectId,
+      containerProjectId: productId ? projectId : undefined,
       signal: request.signal,
       ...input,
     });

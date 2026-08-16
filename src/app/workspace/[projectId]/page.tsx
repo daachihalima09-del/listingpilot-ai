@@ -15,6 +15,8 @@ import {
 import { requireAuthenticatedUser } from '@/modules/auth/server/context';
 import { getProjectPageTenantContext } from '@/modules/projects/server/project-page-context';
 import { getUserProject } from '@/modules/projects/server/project-operations';
+import { getUserProduct } from '@/modules/products/services/product-service.server';
+import { ProjectProductsPage } from '@/modules/products/components/ProjectProductsPage';
 import { ProjectError } from '@/modules/projects/types/errors';
 import { hasValidShopifyConfig } from '@/modules/shopify/config';
 import {
@@ -46,6 +48,7 @@ import { TenantAccessError } from '@/modules/tenancy/server/tenant-context';
 interface SavedProjectWorkspacePageProps {
   params: Promise<{
     projectId: string;
+    productId?: string;
   }>;
   searchParams: Promise<{
     organizationId?: string | string[];
@@ -57,15 +60,29 @@ export default async function ProjectWorkspacePage({
   params,
   searchParams,
 }: SavedProjectWorkspacePageProps) {
+  const routeParams = await params;
+  if (!routeParams.productId) {
+    return ProjectProductsPage({
+      params: Promise.resolve({ projectId: routeParams.projectId }),
+      searchParams,
+    });
+  }
   const user = await requireAuthenticatedUser();
-  const [{ projectId }, query] = await Promise.all([params, searchParams]);
+  const { projectId, productId } = routeParams;
+  const query = await searchParams;
 
   try {
     const tenant = await getProjectPageTenantContext(user.id, query);
-    const project = await getUserProject(user.id, {
-      workspaceId: tenant.workspace.id,
-      projectId,
-    });
+    const project = productId
+      ? await getUserProduct(user.id, {
+          workspaceId: tenant.workspace.id,
+          projectId,
+          productId,
+        })
+      : await getUserProject(user.id, {
+          workspaceId: tenant.workspace.id,
+          projectId,
+        });
     const configured = hasValidShopifyConfig();
     const merchantPreferences = createServerMerchantPreferenceService();
     const [
@@ -137,6 +154,7 @@ export default async function ProjectWorkspacePage({
         key={project.id}
         initialProject={{
           id: project.id,
+          containerProjectId: productId ? projectId : undefined,
           organizationId: tenant.organization.id,
           workspaceId: project.workspaceId,
           name: project.name,

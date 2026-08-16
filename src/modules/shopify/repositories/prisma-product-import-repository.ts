@@ -19,12 +19,14 @@ export const prismaShopifyImportRepository: ShopifyImportRepository = {
       },
       select: {
         status: true,
+        projectId: true,
         shopifyProductGid: true,
         shopifyProductLegacyId: true,
         shopifyStoreId: true,
-        project: {
+        product: {
           select: {
             id: true,
+            projectId: true,
             workspaceId: true,
             archivedAt: true,
             shopifyProductPublication: { select: { shopifyProductId: true } },
@@ -33,15 +35,15 @@ export const prismaShopifyImportRepository: ShopifyImportRepository = {
       },
     });
     if (link) {
-      const archived = Boolean(link.project.archivedAt);
+      const archived = Boolean(link.product?.archivedAt);
       const valid = link.status === 'LINKED'
-        && link.project.workspaceId === input.workspaceId
+        && link.product?.workspaceId === input.workspaceId
         && link.shopifyStoreId === input.shopifyStoreId
         && link.shopifyProductGid === input.productGid
         && link.shopifyProductLegacyId === legacyProductIdFromGid(input.productGid)
-        && link.project.shopifyProductPublication?.shopifyProductId === link.shopifyProductLegacyId;
+        && link.product.shopifyProductPublication?.shopifyProductId === link.shopifyProductLegacyId;
       return {
-        projectId: link.project.id,
+        projectId: link.product?.projectId ?? link.projectId,
         archived,
         state: valid
           ? archived ? 'ARCHIVED_EXISTING_PROJECT' : 'VALID_EXISTING_LINK'
@@ -66,12 +68,12 @@ export const prismaShopifyImportRepository: ShopifyImportRepository = {
           shopifyProductId: legacyProductIdFromGid(input.productGid),
         },
       },
-      select: { projectId: true, project: { select: { archivedAt: true, sourceType: true } } },
+      select: { projectId: true, product: { select: { projectId: true, archivedAt: true, sourceType: true } } },
     });
     return publication ? {
-      projectId: publication.projectId,
-      archived: Boolean(publication.project.archivedAt),
-      state: publication.project.sourceType ? 'LEGACY_RECOVERABLE_LINK' : 'INCONSISTENT_LINK_BLOCKED',
+      projectId: publication.product?.projectId ?? publication.projectId,
+      archived: Boolean(publication.product?.archivedAt),
+      state: publication.product?.sourceType ? 'LEGACY_RECOVERABLE_LINK' : 'INCONSISTENT_LINK_BLOCKED',
     } : null;
   },
   async repairLegacy(input) {
@@ -95,7 +97,7 @@ export const prismaShopifyImportRepository: ShopifyImportRepository = {
               projectId: true,
               workspaceId: true,
               shopifyProductId: true,
-              project: { select: { archivedAt: true, sourceType: true, shopifyProductImportLink: { select: { id: true, shopifyStoreId: true, shopifyProductGid: true, shopifyProductLegacyId: true, status: true } } } },
+              product: { select: { id: true, projectId: true, archivedAt: true, sourceType: true, shopifyProductImportLink: { select: { id: true, shopifyStoreId: true, shopifyProductGid: true, shopifyProductLegacyId: true, status: true } } } },
             },
           }),
           transaction.shopifyProductImportLink.findFirst({
@@ -108,10 +110,10 @@ export const prismaShopifyImportRepository: ShopifyImportRepository = {
           || !publication
           || publication.workspaceId !== input.workspaceId
           || publication.shopifyProductId !== product.legacyResourceId
-          || !publication.project.sourceType
+          || !publication.product?.sourceType
           || (competingProductLink && competingProductLink.projectId !== publication.projectId)
         ) throw new ShopifyCatalogError('LINK_INCONSISTENT', 409, 'The legacy ListingPilot link could not be verified. No changes were made.');
-        const currentLink = publication.project.shopifyProductImportLink;
+        const currentLink = publication.product.shopifyProductImportLink;
         if (currentLink) {
           const valid = currentLink.status === 'LINKED'
             && currentLink.shopifyStoreId === input.shopifyStoreId
@@ -119,14 +121,15 @@ export const prismaShopifyImportRepository: ShopifyImportRepository = {
             && currentLink.shopifyProductLegacyId === product.legacyResourceId;
           if (!valid) throw new ShopifyCatalogError('LINK_INCONSISTENT', 409, 'The existing ListingPilot link conflicts with this Shopify product. No changes were made.');
           return {
-            projectId: publication.projectId,
-            archived: Boolean(publication.project.archivedAt),
-            state: publication.project.archivedAt ? 'ARCHIVED_EXISTING_PROJECT' as const : 'VALID_EXISTING_LINK' as const,
+            projectId: publication.product.projectId,
+            archived: Boolean(publication.product.archivedAt),
+            state: publication.product.archivedAt ? 'ARCHIVED_EXISTING_PROJECT' as const : 'VALID_EXISTING_LINK' as const,
           };
         }
         await transaction.shopifyProductImportLink.create({
           data: {
             projectId: publication.projectId,
+            productId: publication.product.id,
             workspaceId: input.workspaceId,
             shopifyStoreId: input.shopifyStoreId,
             shopifyProductGid: product.id,
@@ -157,8 +160,8 @@ export const prismaShopifyImportRepository: ShopifyImportRepository = {
           },
         });
         return {
-          projectId: publication.projectId,
-          archived: Boolean(publication.project.archivedAt),
+          projectId: publication.product.projectId,
+          archived: Boolean(publication.product.archivedAt),
           state: 'RECOVERABLE_LINK_REPAIRED' as const,
         };
       }, {
@@ -207,9 +210,38 @@ export const prismaShopifyImportRepository: ShopifyImportRepository = {
         },
         select: { id: true, archivedAt: true },
       });
+      const productEntity = await transaction.product.create({
+        data: {
+          projectId: project.id,
+          workspaceId: input.workspaceId,
+          name: product.title.slice(0, 200),
+          status: 'DRAFT',
+          sourceType: 'SHOPIFY_IMPORT',
+          sourceUrl: `https://${input.shopDomain}/products/${product.handle}`,
+          rawInput: stripExternalHtml(product.descriptionHtml).slice(0, 100_000),
+          generatedListing: {
+            title: product.title,
+            description: stripExternalHtml(product.descriptionHtml),
+            keyFeatures: '',
+          },
+          seoData: {
+            seoTitle: product.seo.title ?? '',
+            seoDescription: product.seo.description ?? '',
+            tags: product.tags.join(', '),
+          },
+          readinessData: {
+            analysisStarted: false,
+            activeStage: 'input',
+            completedStages: [],
+            shopifyReady: false,
+          },
+        },
+        select: { id: true },
+      });
       await transaction.shopifyProductImportLink.create({
         data: {
           projectId: project.id,
+          productId: productEntity.id,
           workspaceId: input.workspaceId,
           shopifyStoreId: input.shopifyStoreId,
           shopifyProductGid: product.id,
@@ -225,6 +257,7 @@ export const prismaShopifyImportRepository: ShopifyImportRepository = {
       await transaction.shopifyProductPublication.create({
         data: {
           projectId: project.id,
+          productId: productEntity.id,
           workspaceId: input.workspaceId,
           shopifyProductId: product.legacyResourceId,
           shopifyHandle: product.handle,

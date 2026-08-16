@@ -20,7 +20,6 @@ interface ProductInputProps {
   onUrlChange: (mode: 'url' | 'product', value: string) => void;
   selectedPdf: File | null;
   onPdfChange: (file: File | null) => void;
-  onLoadDemoProduct: () => void;
   inputError: string | null;
   readOnly?: boolean;
   entryMode?: boolean;
@@ -59,7 +58,6 @@ export function ProductInput({
   onUrlChange,
   selectedPdf,
   onPdfChange,
-  onLoadDemoProduct,
   inputError,
   readOnly = false,
   entryMode = false,
@@ -216,14 +214,6 @@ export function ProductInput({
             }`}
           >
             {isRunning ? 'Analyzing…' : 'Analyze Product'} <ArrowRight className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={onLoadDemoProduct}
-            disabled={controlsDisabled}
-            className="rounded-full border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-semibold text-slate-100 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Load Demo Product
           </button>
         </div>
       </div>
