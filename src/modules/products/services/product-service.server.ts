@@ -33,6 +33,8 @@ export interface ProductDetail {
   projectId: string;
   workspaceId: string;
   name: string;
+  productType: string | null;
+  collection: string | null;
   status: 'DRAFT' | 'READY' | 'ARCHIVED';
   sourceType: 'RAW_SPECIFICATIONS' | 'SUPPLIER_URL' | 'PRODUCT_URL' | 'UPLOADED_PDF' | 'SHOPIFY_IMPORT' | null;
   sourceUrl: string | null;
@@ -53,6 +55,8 @@ export interface ProductSummary {
   projectId: string;
   workspaceId: string;
   name: string;
+  productType: string | null;
+  collection: string | null;
   status: 'DRAFT' | 'READY' | 'ARCHIVED';
   version: number;
   hasSource: boolean;
@@ -85,6 +89,8 @@ function toDetail(product: PrismaProduct): ProductDetail {
     projectId: product.projectId,
     workspaceId: product.workspaceId,
     name: product.name,
+    productType: product.productType,
+    collection: product.collection,
     status: product.status,
     sourceType: product.sourceType,
     sourceUrl: product.sourceUrl,
@@ -125,12 +131,13 @@ async function requireProject(
   tx: Prisma.TransactionClient,
   workspaceId: string,
   projectId: string,
-): Promise<void> {
+): Promise<{ id: string; defaultProductType: string | null; defaultCollection: string | null }> {
   const project = await tx.project.findFirst({
     where: { id: projectId, workspaceId },
-    select: { id: true },
+    select: { id: true, defaultProductType: true, defaultCollection: true },
   });
   if (!project) throw new ProjectNotFoundError();
+  return project;
 }
 
 async function requireProduct(
@@ -173,6 +180,8 @@ export async function listUserProducts(actorUserId: string, input: unknown): Pro
         p."project_id" AS "projectId",
         p."workspace_id" AS "workspaceId",
         p."name",
+        p."product_type" AS "productType",
+        p."collection",
         p."status",
         p."version",
         (p."source_type" IS NOT NULL OR p."raw_input" IS NOT NULL OR p."source_url" IS NOT NULL) AS "hasSource",
@@ -221,8 +230,12 @@ export async function createUserProduct(actorUserId: string, input: unknown): Pr
   return transaction(async (tx) => {
     const membership = await requireMembership(tx, actorUserId, parsed.workspaceId);
     requireOwner(membership);
-    await requireProject(tx, parsed.workspaceId, parsed.projectId);
-    const product = await tx.product.create({ data: parsed });
+    const project = await requireProject(tx, parsed.workspaceId, parsed.projectId);
+    const product = await tx.product.create({ data: {
+      ...parsed,
+      productType: parsed.productType ?? project.defaultProductType,
+      collection: parsed.collection ?? project.defaultCollection,
+    } });
     await tx.auditLog.create({ data: {
       organizationId: membership.organizationId,
       workspaceId: parsed.workspaceId,
@@ -244,14 +257,20 @@ export async function renameUserProduct(actorUserId: string, input: unknown): Pr
     await requireProduct(tx, parsed.workspaceId, parsed.projectId, parsed.productId);
     const result = await tx.product.updateMany({
       where: { id: parsed.productId, projectId: parsed.projectId, workspaceId: parsed.workspaceId, version: parsed.version },
-      data: { name: parsed.name, version: { increment: 1 }, updatedAt: new Date() },
+      data: {
+        name: parsed.name,
+        ...(parsed.productType !== undefined ? { productType: parsed.productType } : {}),
+        ...(parsed.collection !== undefined ? { collection: parsed.collection } : {}),
+        version: { increment: 1 },
+        updatedAt: new Date(),
+      },
     });
     if (result.count !== 1) throw new ProjectStaleWriteError();
     const product = await requireProduct(tx, parsed.workspaceId, parsed.projectId, parsed.productId);
     await tx.auditLog.create({ data: {
       organizationId: membership.organizationId, workspaceId: parsed.workspaceId, userId: actorUserId,
       action: 'product.renamed', entityType: 'Product', entityId: product.id,
-      metadata: { projectId: parsed.projectId, changedFields: ['name'] },
+      metadata: { projectId: parsed.projectId, changedFields: ['name', ...(parsed.productType !== undefined ? ['productType'] : []), ...(parsed.collection !== undefined ? ['collection'] : [])] },
     } });
     return toDetail(product);
   });

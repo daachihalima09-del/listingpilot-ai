@@ -21,6 +21,7 @@ import {
   changesFromReview,
   eligibilityBlockers,
   finalizePlan,
+  isPublishingPlanContentCurrent,
   listingDraftFromProject,
   publishingDraftFingerprint,
   publishingPlanSelectionSchema,
@@ -207,7 +208,18 @@ export async function getSafePublishingPlan(userId: string, projectId: string, p
   const context = await resolvePublishingProject(userId, projectId, containerProjectId);
   const record = await prisma.shopifyPublishingPlan.findFirst({ where: { productId: projectId, projectId: context.projectId, workspaceId: context.workspaceId, ...(planId ? { id: planId } : {}) }, orderBy: { createdAt: 'desc' } });
   if (!record) return null;
-  return { id: record.id, version: record.planVersion, status: record.status, stale: record.status !== 'OPEN' || record.expiresAt <= new Date() || record.projectVersion !== context.version, plan: record.payload as unknown as ShopifyPublishingPlanPayload, selection: record.reviewSelection, store: context.store ? { name: context.store.shopName, domain: context.store.shopDomain } : null };
+  const currentDraft = listingDraftFromProject(context.generatedListing);
+  const contentCurrent = isPublishingPlanContentCurrent({
+    productVersion: context.version,
+    planProductVersion: record.projectVersion,
+    currentDraft,
+    planDraftFingerprint: record.draftFingerprint,
+  });
+  // A workspace navigation without an explicit immutable plan ID must not bind
+  // the merchant to blockers captured before the Product draft was saved.
+  // Explicit plan links remain available and are reported stale below.
+  if (!planId && !contentCurrent) return null;
+  return { id: record.id, version: record.planVersion, status: record.status, stale: record.status !== 'OPEN' || record.expiresAt <= new Date() || !contentCurrent, plan: record.payload as unknown as ShopifyPublishingPlanPayload, selection: record.reviewSelection, store: context.store ? { name: context.store.shopName, domain: context.store.shopDomain } : null };
 }
 
 export async function saveSafePublishingReview(userId: string, projectId: string, untrusted: unknown, containerProjectId?: string) {

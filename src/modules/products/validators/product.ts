@@ -12,6 +12,8 @@ const productName = z.string().trim().min(2).max(200).refine(
   (value) => !/[\u0000-\u001F\u007F]/.test(value),
   'Product name cannot contain control characters.',
 );
+const optionalCatalogDefault = z.string().trim().max(255).transform((value) => value || null).nullable().optional().default(null);
+const editableCatalogValue = z.string().trim().max(255).transform((value) => value || null).nullable().optional();
 const sourceUrl = z.string().trim().max(2_048).url().refine((value) => {
   const parsed = new URL(value);
   return ['http:', 'https:'].includes(parsed.protocol)
@@ -35,10 +37,14 @@ export const createProductSchema = z.object({
   workspaceId: uuid,
   projectId: uuid,
   name: productName,
+  productType: optionalCatalogDefault,
+  collection: optionalCatalogDefault,
 }).strict();
 
 export const renameProductSchema = productIdentitySchema.extend({
   name: productName,
+  productType: editableCatalogValue,
+  collection: editableCatalogValue,
   version: z.number().int().positive(),
 }).strict();
 

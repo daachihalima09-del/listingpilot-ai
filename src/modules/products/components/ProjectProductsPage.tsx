@@ -26,7 +26,7 @@ export async function ProjectProductsPage({ params, searchParams }: Props) {
     ]);
     return (
       <ProductListClient
-        project={{ id: project.id, name: project.name }}
+      project={{ id: project.id, name: project.name, defaultProductType: project.defaultProductType ?? null, defaultCollection: project.defaultCollection ?? null }}
         organizationId={tenant.organization.id}
         workspaceId={tenant.workspace.id}
         canManage={tenant.role === 'OWNER' && project.status !== 'ARCHIVED'}

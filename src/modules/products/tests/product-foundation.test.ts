@@ -19,6 +19,35 @@ test('a project accepts multiple stable product identities', () => {
   assert.notEqual(productA, productB);
 });
 
+test('Product creation accepts inherited defaults and later Product overrides', () => {
+  const inherited = createProductSchema.parse({ workspaceId, projectId, name: 'Dyson TP09' });
+  const overridden = createProductSchema.parse({ workspaceId, projectId, name: 'Dyson BP04', productType: 'Air purifier', collection: 'Indoor air' });
+  assert.equal(inherited.productType, null);
+  assert.equal(inherited.collection, null);
+  assert.equal(overridden.productType, 'Air purifier');
+  assert.equal(overridden.collection, 'Indoor air');
+
+  const service = readFileSync('src/modules/products/services/product-service.server.ts', 'utf8');
+  assert.match(service, /productType: parsed\.productType \?\? project\.defaultProductType/u);
+  assert.match(service, /collection: parsed\.collection \?\? project\.defaultCollection/u);
+  assert.match(service, /parsed\.productType !== undefined/u);
+});
+
+test('Project creation stores only the Project and never auto-creates a Product', () => {
+  const repository = readFileSync('src/modules/projects/repositories/prisma-project-repository.ts', 'utf8');
+  const creation = repository.slice(repository.indexOf('async createProject'), repository.indexOf('async renameProject'));
+  assert.match(creation, /this\.transaction\.project\.create/u);
+  assert.doesNotMatch(creation, /products\s*:/u);
+  assert.doesNotMatch(creation, /product\.create/u);
+});
+
+test('simple employee workflow migration is additive and keeps existing data intact', () => {
+  const migration = readFileSync('prisma/migrations/20260816120000_simple_employee_workflow_foundation/migration.sql', 'utf8');
+  assert.match(migration, /ALTER TABLE "projects"\s+ADD COLUMN/u);
+  assert.match(migration, /ALTER TABLE "products"\s+ADD COLUMN/u);
+  assert.doesNotMatch(migration, /DROP|DELETE|TRUNCATE|ALTER COLUMN/u);
+});
+
 test('product identity always carries workspace, project, and product ids', () => {
   assert.deepEqual(productIdentitySchema.parse({ workspaceId, projectId, productId: productA }), {
     workspaceId,

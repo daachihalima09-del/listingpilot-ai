@@ -39,6 +39,8 @@ function projectRecord(overrides: Partial<ProjectRecord> = {}): ProjectRecord {
     id: projectId,
     workspaceId,
     name: 'Saved project',
+    defaultProductType: null,
+    defaultCollection: null,
     status: 'DRAFT',
     statusBeforeArchive: null,
     sourceType: null,
@@ -104,9 +106,8 @@ class InMemoryProjectRepository implements ProjectRepository {
           id,
           workspaceId: input.workspaceId,
           name: input.name,
-          sourceType: input.sourceType,
-          sourceUrl: input.sourceUrl,
-          rawInput: input.rawInput,
+          defaultProductType: input.defaultProductType,
+          defaultCollection: input.defaultCollection,
         });
         this.projects.push(project);
         return project;
@@ -215,13 +216,13 @@ test('OWNER creates a tenant-scoped project and project.created audit event', as
   const project = await createProject(repository, ownerId, {
     workspaceId,
     name: '  New project  ',
-    sourceType: null,
-    sourceUrl: null,
-    rawInput: null,
+    defaultProductType: 'Television',
+    defaultCollection: 'Summer',
   });
 
   assert.equal(project.name, 'New project');
   assert.equal(project.workspaceId, workspaceId);
+  assert.equal(project.defaultProductType, 'Television');
   assert.equal(repository.audits[0]?.action, 'project.created');
   assert.equal(repository.audits[0]?.workspaceId, workspaceId);
 });

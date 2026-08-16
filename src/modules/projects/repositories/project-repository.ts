@@ -16,6 +16,8 @@ export interface ProjectRecord {
   id: string;
   workspaceId: string;
   name: string;
+  defaultProductType: string | null;
+  defaultCollection: string | null;
   status: ProjectStatus;
   statusBeforeArchive: ProjectStatus | null;
   sourceType: ProjectSourceType | null;
@@ -70,9 +72,8 @@ export interface ProjectRepositoryTransaction {
   createProject(input: {
     workspaceId: string;
     name: string;
-    sourceType: ProjectSourceType | null;
-    sourceUrl: string | null;
-    rawInput: string | null;
+    defaultProductType: string | null;
+    defaultCollection: string | null;
   }): Promise<ProjectRecord>;
   renameProject(input: {
     workspaceId: string;

@@ -96,11 +96,12 @@ test('NEOVIX and Minimal provider instructions differ materially beyond labels',
 
 test('generated listing editor keeps NEOVIX merchant content in the required order', async () => {
   const source = await readFile(new URL('../review/ListingDraftReview.tsx', import.meta.url), 'utf8');
-  const sections = ['title="Product Title"', "'Product Information'", 'title="Description"', 'title="Key Features"', 'title="SEO Summary"'];
-  const positions = sections.map((section) => source.indexOf(section));
+  const listing = source.slice(source.indexOf("{view === 'LISTING' ? ("), source.indexOf("{view === 'ADVANCED' ? ("));
+  const sections = ['title="Product Title"', "'Product Information'", 'title="Description"', 'title="Key Features"', '{seoCard}', '{catalogCard}'];
+  const positions = sections.map((section) => listing.indexOf(section));
   assert.equal(positions.every((position) => position >= 0), true);
   assert.deepEqual(positions, [...positions].sort((left, right) => left - right));
-  assert.match(source, /Evidence and quality details remain available under Review and Advanced/);
+  assert.match(source, /Detailed evidence remains available under Advanced/);
 });
 
 test('NEOVIX provider output has one Product Information row per label and marked features', () => {

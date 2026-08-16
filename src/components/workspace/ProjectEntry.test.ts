@@ -76,12 +76,13 @@ test('merchant analysis workflow does not expose demo product controls', async (
   assert.doesNotMatch(input, /Load Demo Product|onLoadDemoProduct/u);
 });
 
-test('entry supports Product URL and Analyze Product then reveals the workspace', async () => {
+test('entry supports a Product link and Analyze Product then reveals the workspace', async () => {
   const [workspace, input] = await Promise.all([
     readFile(new URL('./ListingWorkspace.tsx', import.meta.url), 'utf8'),
     readFile(new URL('./ProductInput.tsx', import.meta.url), 'utf8'),
   ]);
-  assert.match(input, /Product URL/);
+  assert.match(input, /Add from a link/);
+  assert.match(input, /Product link/);
   assert.match(input, /type="url"/);
   assert.match(input, /Analyze Product/);
   assert.match(workspace, /startPipeline[\s\S]*setAnalysisStarted\(true\)/);
@@ -93,7 +94,7 @@ test('entry is responsive and source controls remain keyboard accessible', async
   const input = await readFile(new URL('./ProductInput.tsx', import.meta.url), 'utf8');
   assert.match(input, /max-w-full overflow-hidden/);
   assert.match(input, /sm:p-8/);
-  assert.match(input, /aria-pressed=\{inputMode === mode\.key\}/);
+  assert.match(input, /aria-pressed=\{inputMode === mode\.key \|\|/);
   assert.match(input, /aria-labelledby=\{entryMode/);
   assert.match(input, /type="button"/);
   assert.doesNotMatch(input, /min-w-\[[4-9][0-9]{2}px\]/);

@@ -5,9 +5,10 @@ import test from 'node:test';
 const source = await readFile(new URL('./ListingWorkspace.tsx', import.meta.url), 'utf8');
 const draftRouteErrors = await readFile(new URL('../../modules/listing-draft/persistence/route-helpers.server.ts', import.meta.url), 'utf8');
 
-test('Overview is the default and five accessible workspace tabs are present', () => {
+test('Overview is the default and the six employee workflow tabs are accessible', () => {
   assert.match(source, /useState<WorkspaceTab>\('OVERVIEW'\)/);
-  for (const tab of ['OVERVIEW', 'LISTING', 'REVIEW', 'SHOPIFY', 'ADVANCED']) assert.match(source, new RegExp(`id: '${tab}'`));
+  for (const tab of ['OVERVIEW', 'LISTING', 'IMAGES', 'METAFIELDS', 'SHOPIFY', 'ADVANCED']) assert.match(source, new RegExp(`id: '${tab}'`));
+  assert.doesNotMatch(source, /id: 'REVIEW'/);
   assert.match(source, /role="tablist"/);
   assert.match(source, /role="tab"/);
   assert.match(source, /aria-selected/);
@@ -18,11 +19,10 @@ test('Overview is the default and five accessible workspace tabs are present', (
 test('merchant work is progressively disclosed into the correct primary areas', () => {
   assert.match(source, /workspaceTab === 'LISTING'/);
   assert.match(source, /<ListingDraftReview/);
-  assert.match(source, /workspaceTab === 'REVIEW'/);
   assert.match(source, /<ProductTruthTable/);
   assert.match(source, /<AIDetective/);
   assert.match(source, /workspaceTab === 'SHOPIFY'/);
-  assert.match(source, /Safe Shopify Publishing/);
+  assert.match(source, /Ready for Shopify/);
   assert.match(source, /<ShopifyListingPreview/);
   assert.match(source, /workspaceTab === 'ADVANCED'/);
   assert.match(source, /<details/);
@@ -31,11 +31,11 @@ test('merchant work is progressively disclosed into the correct primary areas', 
 test('top-level tabs own listing, evidence, Shopify preview and advanced controls without nested review navigation', async () => {
   const review = await readFile(new URL('../../modules/listing-draft/review/ListingDraftReview.tsx', import.meta.url), 'utf8');
   assert.match(source, /view="LISTING"/u);
-  assert.match(source, /view="REVIEW"/u);
   assert.match(source, /view="ADVANCED"/u);
+  assert.doesNotMatch(source, /view="REVIEW"/u);
   assert.doesNotMatch(review, /Draft review sections|listingpilot:draft-review-tab|role="tablist"/u);
-  assert.match(review, /view === 'REVIEW'/u);
   assert.match(review, /view === 'ADVANCED'/u);
+  assert.match(review, /Product Intelligence &amp; Diagnostics/u);
 });
 
 test('one primary CTA is derived from workflow state and legacy tools stay collapsed', () => {
@@ -44,12 +44,12 @@ test('one primary CTA is derived from workflow state and legacy tools stay colla
   assert.doesNotMatch(source, /<details[^>]+open/);
   assert.match(source, /publishingReviewComplete/);
   assert.match(source, /onOpenListing=\{\(\) => selectWorkspaceTab\('LISTING'\)\}/);
-  assert.match(source, /onOpenAdvanced=\{\(\) => selectWorkspaceTab\('ADVANCED'\)\}/);
+  assert.match(source, /onContinue=\{\(\) => selectWorkspaceTab\('IMAGES'\)\}/);
 });
 
 test('mobile navigation contains overflow protection and cards stack before wide breakpoints', () => {
   assert.match(source, /max-w-full gap-1 overflow-x-auto/);
-  assert.match(source, /grid min-w-0 gap-6 lg:grid-cols/);
+  assert.match(source, /xl:grid-cols/);
   assert.match(source, /break-words/);
 });
 
@@ -73,8 +73,9 @@ test('generation readiness is compact, canonical, and collapsed by default', () 
 test('generation shows one real in-flight state and never exposes provisional content', () => {
   assert.match(source, /generationRequestRef\.current/);
   assert.match(source, /setWorkspaceTab\('LISTING'\)/);
-  assert.match(source, /Generating your listing/);
-  assert.match(source, /Your listing will appear after quality checks pass and the draft is saved/);
+  assert.match(source, /Generating content/);
+  assert.match(source, /Fact checks, quality checks, and saving will follow/);
+  assert.match(source, /Listing generated and quality checked/);
   assert.match(source, /No listing generated yet/);
   assert.doesNotMatch(source, /!listingDraft \? <GeneratedListing/);
 });

@@ -164,12 +164,12 @@ test('merchant edits, locks and reviewed sections remain valid persisted draft s
 test('review workspace delegates navigation to top-level tabs without losing review controls', async () => {
   const source = await readFile(new URL('../review/ListingDraftReview.tsx', import.meta.url), 'utf8');
   for (const required of [
-    "view === 'LISTING'", "view === 'REVIEW'", "view === 'ADVANCED'",
+    "view === 'LISTING'", "view === 'ADVANCED'",
     'role="dialog"', "event.key === 'Escape'", 'Merchant Review Workspace',
     'Listing Review', 'Why?', 'Save Draft', 'Product Truth', 'Listing Craft', 'Publishing Constraints',
-    'Shopify approval readiness', 'Approve and save draft', 'Review SEO and catalog',
+    'Shopify approval readiness', 'Approve and save draft', 'Save & Continue to Images',
   ]) assert.ok(source.includes(required), `missing review behavior: ${required}`);
-  for (const removed of ['window.localStorage', 'role="tablist"', 'Draft review sections']) {
+  for (const removed of ['window.localStorage', 'role="tablist"', 'Draft review sections', "view === 'REVIEW'"]) {
     assert.equal(source.includes(removed), false, `redundant nested navigation remains: ${removed}`);
   }
 });

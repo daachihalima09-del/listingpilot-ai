@@ -72,7 +72,6 @@ const stageOrder: PipelineStage[] = ['input', 'extract', 'verify', 'generate', '
 const workspaceTabs = [
   { id: 'OVERVIEW', label: 'Overview' },
   { id: 'LISTING', label: 'Listing' },
-  { id: 'REVIEW', label: 'Review' },
   { id: 'IMAGES', label: 'Images' },
   { id: 'METAFIELDS', label: 'Metafields' },
   { id: 'SHOPIFY', label: 'Shopify' },
@@ -243,7 +242,8 @@ function GenerationEligibilityPanel({
   return (
     <div className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.06] p-4">
       <p className="font-semibold text-amber-100">Ready to generate</p>
-      <p className="mt-1 text-sm text-slate-300">{eligibility.warnings.length} optional {eligibility.warnings.length === 1 ? 'item needs' : 'items need'} review. Unsupported or unavailable details will be omitted safely.</p>
+      <p className="mt-1 text-sm text-slate-300">Your Product analysis is complete.</p>
+      <p className="mt-2 text-sm font-medium text-amber-100">{eligibility.warnings.length} optional {eligibility.warnings.length === 1 ? 'detail' : 'details'}</p>
       <details className="mt-3">
         <summary className="cursor-pointer text-sm font-semibold text-amber-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300">View details</summary>
         <GenerationFindingList findings={eligibility.warnings} onReviewProductTruth={onReviewProductTruth} />
@@ -1027,8 +1027,8 @@ export function ListingWorkspace({
     }
   };
 
-  const handleSaveDraft = async () => {
-    if (!initialProject || !listingDraft || isReadOnly) return;
+  const handleSaveDraft = async (): Promise<boolean> => {
+    if (!initialProject || !listingDraft || isReadOnly) return false;
     setDraftError(null);
     setIsSavingDraft(true);
     try {
@@ -1070,8 +1070,10 @@ export function ListingWorkspace({
       setListingContent(nextContent);
       setListingDraft(response.draft);
       projectSave.adoptExternalSave(response.project.version, savedSnapshot);
+      return true;
     } catch (error) {
       setDraftError(error instanceof ProjectApiError ? error.message : 'The listing draft could not be saved.');
+      return false;
     } finally {
       setIsSavingDraft(false);
     }
@@ -1160,6 +1162,13 @@ export function ListingWorkspace({
   );
   const showProjectEntry = shouldShowProjectEntry(initialProject, analysisStarted);
   const publishingReviewComplete = ['TITLE', 'OVERVIEW', 'SPECIFICATIONS', 'FEATURES', 'SEO', 'CATALOG'].every((section) => listingDraft?.reviewWorkspace?.reviewedSections.includes(section as never));
+  const workflowProgress: Partial<Record<WorkspaceTab, boolean>> = {
+    OVERVIEW: analysisStarted,
+    LISTING: listingDraft?.status === 'SAVED' && publishingReviewComplete,
+    IMAGES: Boolean(shopifyImages?.configuration.images.length),
+    METAFIELDS: Boolean(shopifyMetafields?.configuration.version),
+    SHOPIFY: Boolean(shopifyPublishing?.publication),
+  };
   const primaryAction = !analysisStarted
     ? { label: 'Analyze Product', tab: 'ADVANCED' as const }
     : !listingDraft
@@ -1304,7 +1313,7 @@ export function ListingWorkspace({
           <nav role="tablist" aria-label="Product workspace" className="mt-6 flex max-w-full gap-1 overflow-x-auto rounded-2xl border border-white/10 bg-white/5 p-1">
             {workspaceTabs.map(({ id, label }) => (
               <button key={id} id={`workspace-tab-${id.toLocaleLowerCase('en-US')}`} type="button" role="tab" aria-selected={workspaceTab === id} aria-controls={`workspace-panel-${id.toLocaleLowerCase('en-US')}`} tabIndex={workspaceTab === id ? 0 : -1} onClick={() => selectWorkspaceTab(id)} onKeyDown={(event) => onWorkspaceTabKeyDown(event, id)} className={`shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 ${workspaceTab === id ? 'bg-amber-300 text-slate-950' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
-                {label}
+                {workflowProgress[id] ? `✓ ${label}` : label}
               </button>
             ))}
           </nav>
@@ -1321,7 +1330,7 @@ export function ListingWorkspace({
                     ['Readiness', listingDraft ? 'Ready for review' : !analysisStarted ? 'Needs analysis' : !generationEligibilityCurrent ? 'Checking' : generationEligibility?.canGenerate ? generationEligibility.warnings.length ? 'Ready with warnings' : 'Ready to generate' : 'Needs attention'],
                   ].map(([label, value]) => <div key={label} className="rounded-xl border border-white/10 bg-white/5 p-4"><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-1 font-medium text-white">{value}</dd></div>)}
                 </dl>
-                {analysisStarted && !listingDraft ? <div className="mt-5"><GenerationEligibilityPanel eligibility={generationEligibility} current={generationEligibilityCurrent} refreshStatus={eligibilityRefreshStatus} onRetry={retryGenerationEligibility} onReviewProductTruth={() => selectWorkspaceTab('REVIEW')} /></div> : null}
+                {analysisStarted && !listingDraft ? <div className="mt-5"><GenerationEligibilityPanel eligibility={generationEligibility} current={generationEligibilityCurrent} refreshStatus={eligibilityRefreshStatus} onRetry={retryGenerationEligibility} onReviewProductTruth={() => selectWorkspaceTab('ADVANCED')} /></div> : null}
                 <div className="mt-6"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Next step</p><button type="button" onClick={() => { if (primaryAction.label === 'Generate Listing') void handleGenerateDraft(); else if (primaryAction.label === 'Analyze Product' && canAnalyze) void handleAnalyze(); else selectWorkspaceTab(primaryAction.tab); }} disabled={isReadOnly || isGeneratingDraft || isSubmitting} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-200 disabled:opacity-50 sm:w-auto"><Sparkles className="h-4 w-4" aria-hidden="true" />{isGeneratingDraft ? 'Generating…' : primaryAction.label}</button></div>
               </div>
             </section>
@@ -1331,18 +1340,23 @@ export function ListingWorkspace({
             <section id="workspace-panel-listing" role="tabpanel" aria-labelledby="workspace-tab-listing" className="mt-6 min-w-0 space-y-6">
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#081423] px-4 py-3"><div><p className="text-xs uppercase tracking-[0.18em] text-slate-500">{listingDraft ? 'Generated with' : 'Listing Style'}</p><p className="mt-1 font-semibold text-white">{listingDraft?.metadata.listingStandardId ? `${listingDraft.metadata.listingStandardId} Standard` : listingStyle?.standardName ?? 'Not configured'}</p><p className="mt-1 text-xs text-slate-400">{listingDraft ? 'Using your saved Listing Style at generation time' : 'Current saved Listing Style will be used.'}</p></div><Link href="/settings/business-profile/listing" className="rounded-xl border border-white/10 px-4 py-2 text-sm font-semibold text-amber-100 hover:bg-white/5">View Listing Style</Link></div>
               {listingStyleChanged ? <div role="alert" className="rounded-2xl border border-amber-300/25 bg-amber-300/[0.08] p-4"><p className="font-semibold text-amber-100">Your Listing Style changed after this draft was generated.</p><p className="mt-1 text-sm text-slate-300">The existing draft is unchanged. Generate a new draft to apply the latest preferences.</p><button type="button" onClick={handleGenerateDraft} disabled={isGeneratingDraft || isReadOnly} className="mt-3 rounded-xl bg-amber-300 px-4 py-2.5 text-sm font-semibold text-slate-950 disabled:opacity-50">Generate New Draft</button></div> : null}
-              {initialProject && !listingDraft ? <><GenerationEligibilityPanel eligibility={generationEligibility} current={generationEligibilityCurrent} refreshStatus={eligibilityRefreshStatus} onRetry={retryGenerationEligibility} onReviewProductTruth={() => selectWorkspaceTab('REVIEW')} /><section className="rounded-2xl border border-white/10 bg-[#081423] p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold text-white">Listing Draft</h2><p className="mt-1 text-sm text-slate-400">{isGeneratingDraft ? 'Generating your listing…' : 'No listing generated yet.'}</p>{isGeneratingDraft ? <p role="status" aria-live="polite" className="mt-2 text-sm text-amber-100">Using {listingStyle?.standardName ?? 'your saved Listing Style'}. Your listing will appear after quality checks pass and the draft is saved.</p> : null}</div><button type="button" onClick={handleGenerateDraft} disabled={isReadOnly || isGeneratingDraft || !canGenerateListing} className="rounded-xl bg-amber-300 px-5 py-2.5 text-sm font-semibold text-slate-950 disabled:opacity-50">{isGeneratingDraft ? 'Generating…' : 'Generate Listing'}</button></div>{draftError ? <div role="alert" className="mt-4 rounded-xl bg-rose-400/10 p-4 text-sm text-rose-100"><p>{draftError}</p><button type="button" onClick={handleGenerateDraft} disabled={isGeneratingDraft || !canGenerateListing} className="mt-3 rounded-lg border border-rose-200/20 px-3 py-2 text-xs font-semibold hover:bg-rose-200/10 disabled:opacity-50">Retry</button></div> : null}</section></> : null}
-              {listingDraft ? <ListingDraftReview view="LISTING" draft={listingDraft} onChange={setListingDraft} onSave={handleSaveDraft} onRegenerate={handleRegenerateDraft} saving={isSavingDraft} regenerating={regeneratingSection} autosaveStatus={projectSave.message} readOnly={isReadOnly} error={draftError} onAddToGoldLibrary={canManage ? handleAddToGoldLibrary : undefined} addingToGoldLibrary={isAddingGoldFixture} /> : null}
+              {initialProject && !listingDraft ? <><GenerationEligibilityPanel eligibility={generationEligibility} current={generationEligibilityCurrent} refreshStatus={eligibilityRefreshStatus} onRetry={retryGenerationEligibility} onReviewProductTruth={() => selectWorkspaceTab('ADVANCED')} /><section className="rounded-2xl border border-white/10 bg-[#081423] p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold text-white">Listing Draft</h2><p className="mt-1 text-sm text-slate-400">{isGeneratingDraft ? 'Generating content…' : 'No listing generated yet.'}</p>{isGeneratingDraft ? <div role="status" aria-live="polite" className="mt-3 space-y-2 text-sm"><p className="text-emerald-200">✓ Preparing verified Product information</p><p className="text-emerald-200">✓ Applying {listingStyle?.standardName ?? 'your Listing Standard'}</p><p className="font-medium text-amber-100">Generating content…</p><p className="text-slate-400">Fact checks, quality checks, and saving will follow before the listing appears.</p></div> : null}</div><button type="button" onClick={handleGenerateDraft} disabled={isReadOnly || isGeneratingDraft || !canGenerateListing} className="rounded-xl bg-amber-300 px-5 py-2.5 text-sm font-semibold text-slate-950 disabled:opacity-50">{isGeneratingDraft ? 'Generating…' : 'Generate Listing'}</button></div>{draftError ? <div role="alert" className="mt-4 rounded-xl bg-rose-400/10 p-4 text-sm text-rose-100"><p>{draftError}</p><button type="button" onClick={handleGenerateDraft} disabled={isGeneratingDraft || !canGenerateListing} className="mt-3 rounded-lg border border-rose-200/20 px-3 py-2 text-xs font-semibold hover:bg-rose-200/10 disabled:opacity-50">Retry</button></div> : null}</section></> : null}
+              {listingDraft ? <><div role="status" className="rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.06] px-4 py-3 text-sm text-emerald-100">&#10003; Listing generated and quality checked</div><ListingDraftReview view="LISTING" draft={listingDraft} onChange={setListingDraft} onSave={handleSaveDraft} onRegenerate={handleRegenerateDraft} saving={isSavingDraft} regenerating={regeneratingSection} autosaveStatus={projectSave.message} readOnly={isReadOnly} error={draftError} onAddToGoldLibrary={canManage ? handleAddToGoldLibrary : undefined} addingToGoldLibrary={isAddingGoldFixture} onContinue={() => selectWorkspaceTab('IMAGES')} pricingAndVariants={initialProject && shopifyVariants ? <ShopifyVariantsPanel key={`variants-${shopifyPanelGeneration}`} projectId={initialProject.id} configured={shopifyVariants.configured} connected={shopifyVariants.connected} canManage={shopifyVariants.canManage} hasPublishedProduct={hasPublishedShopifyProduct} initialConfiguration={shopifyVariants.configuration} /> : undefined} /></> : null}
             </section>
           ) : null}
 
-          {workspaceTab === 'REVIEW' ? <section id="workspace-panel-review" role="tabpanel" aria-labelledby="workspace-tab-review" className="mt-6 min-w-0 space-y-6"><div className="grid min-w-0 gap-6 lg:grid-cols-2"><AIDetective product={currentProduct} hasConflict={hasConflict} conflictResolved={conflictResolved} onResolve={handleResolveConflict} visibleSourcesCount={showSources} recommendationConfidence={recommendationConfidence} showRecommendation={showRecommendation} readOnly={isReadOnly} /><CatalogHealth product={{ ...currentProduct, catalogHealth: { ...currentProduct.catalogHealth, score: overview.score, label: overview.label, items: overview.items } }} /><section aria-label="Product Truth summary" className="rounded-[1.75rem] border border-white/10 bg-[#081423] p-5"><h2 className="text-lg font-semibold text-white">Product Truth</h2><p className="mt-2 text-sm text-slate-400">{truthRows.filter(({ status }) => status === 'Verified').length} verified facts · {truthRows.filter(({ status }) => status === 'Conflict').length} conflicts · {truthRows.filter(({ status }) => status !== 'Verified' && status !== 'Conflict').length} items need review</p><p className="mt-3 text-xs text-slate-500">Detailed evidence and field-level diagnostics appear below.</p></section><SourceEvidence sources={currentProduct.sources} /><RecentAnalyses product={currentProduct} /></div>{listingDraft ? <ListingDraftReview view="REVIEW" draft={listingDraft} onChange={setListingDraft} onSave={handleSaveDraft} onRegenerate={handleRegenerateDraft} saving={isSavingDraft} regenerating={regeneratingSection} autosaveStatus={projectSave.message} readOnly={isReadOnly} error={draftError} onOpenListing={() => selectWorkspaceTab('LISTING')} onOpenAdvanced={() => selectWorkspaceTab('ADVANCED')} /> : null}</section> : null}
-
           {workspaceTab === 'IMAGES' && initialProject && shopifyImages && initialProject.containerProjectId ? <div id="workspace-panel-images" role="tabpanel" aria-labelledby="workspace-tab-images" className="mt-6"><ShopifyImagesPanel key={`images-${shopifyPanelGeneration}`} projectId={initialProject.id} containerProjectId={initialProject.containerProjectId} workspaceId={initialProject.workspaceId} configured={shopifyImages.configured} connected={shopifyImages.connected} canManage={shopifyImages.canManage} hasPublishedProduct={hasPublishedShopifyProduct} initialConfiguration={shopifyImages.configuration} onNext={() => selectWorkspaceTab('METAFIELDS')} /></div> : null}
 
-          {workspaceTab === 'METAFIELDS' && initialProject && shopifyMetafields ? <div id="workspace-panel-metafields" role="tabpanel" aria-labelledby="workspace-tab-metafields" className="mt-6"><ShopifyMetafieldsPanel key={`metafields-${shopifyPanelGeneration}`} projectId={initialProject.id} configured={shopifyMetafields.configured} connected={shopifyMetafields.connected} canManage={shopifyMetafields.canManage} hasPublishedProduct={hasPublishedShopifyProduct} initialConfiguration={shopifyMetafields.configuration} /></div> : null}
+          {workspaceTab === 'METAFIELDS' && initialProject && shopifyMetafields ? <div id="workspace-panel-metafields" role="tabpanel" aria-labelledby="workspace-tab-metafields" className="mt-6"><ShopifyMetafieldsPanel key={`metafields-${shopifyPanelGeneration}`} projectId={initialProject.id} configured={shopifyMetafields.configured} connected={shopifyMetafields.connected} canManage={shopifyMetafields.canManage} hasPublishedProduct={hasPublishedShopifyProduct} initialConfiguration={shopifyMetafields.configuration} onNext={() => selectWorkspaceTab('SHOPIFY')} /></div> : null}
 
-        {workspaceTab === 'SHOPIFY' ? <div id="workspace-panel-shopify" role="tabpanel" aria-labelledby="workspace-tab-shopify" className="mt-6 space-y-6">{shopifyListingPreview ? <ShopifyListingPreview listing={shopifyListingPreview} notice={listingDraft?.status === 'SAVED' ? 'This is the saved authoritative draft that Safe Publishing will compare with Shopify.' : 'Save the draft before preparing Shopify changes. Safe Publishing always uses the saved authoritative version.'} /> : <section className="rounded-[1.75rem] border border-white/10 bg-[#081423] p-5 sm:p-7"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Shopify Preview</p><h2 className="mt-2 text-2xl font-semibold text-white">Generate a listing to preview Shopify output</h2><p className="mt-2 text-sm leading-6 text-slate-400">The final title, complete product description, and SEO metadata will appear here.</p></section>}<section className="rounded-[1.75rem] border border-amber-300/20 bg-[#081423] p-5 sm:p-7"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Safe Shopify Publishing</p><h2 className="mt-2 text-2xl font-semibold text-white">Prepare, review, publish, verify</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">Compare the saved draft with the current Shopify product and review every proposed change before anything is published.</p><div className="mt-5 grid gap-3 sm:grid-cols-3">{[['Store', shopifyPublishing?.connected ? 'Connected' : 'Not connected'], ['Product link', shopifyPublishing?.publication ? 'Existing product linked' : 'No published product'], ['Safety', 'Explicit review required']].map(([label, value]) => <div key={label} className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm"><span className="text-slate-500">{label}</span><p className="mt-1 font-medium text-white">{value}</p></div>)}</div>{productWorkspaceBase ? <Link href={`${productWorkspaceBase}/shopify-publish`} className="mt-6 inline-flex rounded-xl bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-200">Prepare for Shopify</Link> : null}</section></div> : null}
+        {workspaceTab === 'SHOPIFY' ? <div id="workspace-panel-shopify" role="tabpanel" aria-labelledby="workspace-tab-shopify" className="mt-6 space-y-6">{shopifyListingPreview ? <ShopifyListingPreview listing={shopifyListingPreview} notice={listingDraft?.status === 'SAVED' ? 'This saved listing is the version that will be reviewed before publishing.' : 'Save the listing before continuing to Shopify.'} /> : <section className="rounded-[1.75rem] border border-white/10 bg-[#081423] p-5 sm:p-7"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Shopify Preview</p><h2 className="mt-2 text-2xl font-semibold text-white">Generate a listing to preview the final product</h2><p className="mt-2 text-sm leading-6 text-slate-400">Your title, description, organization, SEO, images, and optional metafields will appear here.</p></section>}<section className="rounded-[1.75rem] border border-amber-300/20 bg-[#081423] p-5 sm:p-7"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Ready for Shopify</p><h2 className="mt-2 text-2xl font-semibold text-white">Review the complete product before publishing</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">ListingPilot will show every proposed Shopify change for confirmation. Nothing is published from this page.</p><div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{[
+          ['Content', listingDraft?.status === 'SAVED' && publishingReviewComplete ? 'Saved and approved' : 'Needs review'],
+          ['Images', shopifyImages?.configuration.images.length ? `${shopifyImages.configuration.images.length} selected` : 'Optional'],
+          ['Organization', listingDraft?.reviewWorkspace?.reviewedSections.includes('CATALOG') ? 'Reviewed' : 'Needs review'],
+          ['Pricing & Variants', shopifyVariants?.configuration.variants.length ? `${shopifyVariants.configuration.variants.length} configured` : 'Optional'],
+          ['SEO', listingDraft?.reviewWorkspace?.reviewedSections.includes('SEO') ? 'Reviewed' : 'Needs review'],
+          ['Metafields', shopifyMetafields?.configuration.fields.some(({ enabled }) => enabled) ? 'Selected' : 'Optional'],
+        ].map(([label, value]) => <div key={label} className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm"><span className="text-slate-500">{label}</span><p className="mt-1 font-medium text-white">{value}</p></div>)}</div><div className="mt-5 flex flex-wrap gap-3 text-sm"><span className="rounded-full border border-white/10 px-3 py-2 text-slate-300">Store: {shopifyPublishing?.connected ? 'Connected' : 'Not connected'}</span><span className="rounded-full border border-white/10 px-3 py-2 text-slate-300">Destination chosen during review</span></div>{productWorkspaceBase ? <Link href={`${productWorkspaceBase}/shopify-publish`} className="mt-6 inline-flex rounded-xl bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-200">Review &amp; Publish to Shopify →</Link> : null}</section></div> : null}
 
           {workspaceTab === 'ADVANCED' ? <section id="workspace-panel-advanced" role="tabpanel" aria-labelledby="workspace-tab-advanced" className="mt-6"><details className="rounded-2xl border border-white/10 bg-[#081423]"><summary className="cursor-pointer px-5 py-4 font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300">Open technical and legacy tools</summary><div className="border-t border-white/10 p-4"><div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
             <div className="min-w-0 space-y-6">
@@ -1487,6 +1501,7 @@ export function ListingWorkspace({
                     autosaveStatus={projectSave.message}
                     readOnly={isReadOnly}
                     error={draftError}
+                    onOpenListing={() => selectWorkspaceTab('LISTING')}
                     onAddToGoldLibrary={canManage ? handleAddToGoldLibrary : undefined}
                     addingToGoldLibrary={isAddingGoldFixture}
                   />
@@ -1526,17 +1541,6 @@ export function ListingWorkspace({
                   }}
                   initialContext={shopifyPublishing}
                   onPublicationChange={setHasPublishedShopifyProduct}
-                />
-              ) : null}
-              {initialProject && shopifyVariants ? (
-                <ShopifyVariantsPanel
-                  key={`variants-${shopifyPanelGeneration}`}
-                  projectId={initialProject.id}
-                  configured={shopifyVariants.configured}
-                  connected={shopifyVariants.connected}
-                  canManage={shopifyVariants.canManage}
-                  hasPublishedProduct={hasPublishedShopifyProduct}
-                  initialConfiguration={shopifyVariants.configuration}
                 />
               ) : null}
               <ProductTruthTable rows={truthRows} visibleCount={visibleRows} />

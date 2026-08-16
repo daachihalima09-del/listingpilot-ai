@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import type { EffectiveMerchantPreferences } from '../../merchant-preferences/effective-preferences.ts';
 import type { ListingDraft } from '../../listing-draft/domain/contracts.ts';
 import { assessDuplicateProducts, identityFromDraft } from './duplicate-assessment.ts';
-import { changesFromReview, eligibilityBlockers, finalizePlan, publishingDraftFingerprint, validatePlanSelection, type ShopifyPublishingPlanPayload } from './publishing-plan.ts';
+import { changesFromReview, eligibilityBlockers, finalizePlan, isPublishingPlanContentCurrent, publishingDraftFingerprint, validatePlanSelection, type ShopifyPublishingPlanPayload } from './publishing-plan.ts';
 import type { ShopifyChangeReviewPayload } from '../review/review-types.ts';
 
 const reviewedSections = ['TITLE', 'OVERVIEW', 'SPECIFICATIONS', 'FEATURES', 'SEO', 'CATALOG'] as const;
@@ -41,6 +41,31 @@ test('eligibility requires owner, saved and reviewed draft, connected Shopify, c
 test('draft fingerprints are deterministic and change with saved content', () => {
   assert.equal(publishingDraftFingerprint(draft()), publishingDraftFingerprint(draft()));
   assert.notEqual(publishingDraftFingerprint(draft()), publishingDraftFingerprint(draft({ title: { value: 'Changed', factIds: ['fact-model'] } })));
+});
+
+test('Product-scoped saved drafts make only their matching Product plan current', () => {
+  const productADraft = draft({ projectId: '10000000-0000-4000-8000-00000000000a' });
+  const productBDraft = draft({ projectId: '10000000-0000-4000-8000-00000000000b', draftId: 'draft-b' });
+  const planFingerprint = publishingDraftFingerprint(productADraft);
+
+  assert.equal(isPublishingPlanContentCurrent({ productVersion: 7, planProductVersion: 7, currentDraft: productADraft, planDraftFingerprint: planFingerprint }), true);
+  assert.equal(isPublishingPlanContentCurrent({ productVersion: 7, planProductVersion: 7, currentDraft: productBDraft, planDraftFingerprint: planFingerprint }), false);
+  assert.equal(isPublishingPlanContentCurrent({ productVersion: 8, planProductVersion: 7, currentDraft: productADraft, planDraftFingerprint: planFingerprint }), false);
+  assert.equal(isPublishingPlanContentCurrent({ productVersion: 7, planProductVersion: 7, currentDraft: null, planDraftFingerprint: planFingerprint }), false);
+});
+
+test('default Safe Publishing lookup discards an obsolete Product snapshot without using Project fallback', () => {
+  const service = readFileSync(new URL('./safe-publishing-service.server.ts', import.meta.url), 'utf8');
+  assert.match(service, /prisma\.product\.findFirst/u);
+  assert.match(service, /listingDraftFromProject\(context\.generatedListing\)/u);
+  assert.match(service, /if \(!planId && !contentCurrent\) return null/u);
+  assert.match(service, /productId: projectId, projectId: context\.projectId, workspaceId: context\.workspaceId/u);
+  assert.doesNotMatch(service, /prisma\.project\.findFirst/u);
+  const prepareStart = service.indexOf('export async function prepareSafePublishingPlan');
+  const prepareEnd = service.indexOf('async function persistPlan', prepareStart);
+  const preparePath = service.slice(prepareStart, prepareEnd);
+  assert.doesNotMatch(preparePath, /publishUserShopifyProject|productCreate\s*\(/u);
+  assert.doesNotMatch(preparePath, /createOpenAi|OpenAI/u);
 });
 
 test('duplicate assessment blocks exact, strong and insufficient identities and exposes possible matches', () => {

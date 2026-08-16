@@ -26,10 +26,9 @@ interface ProductInputProps {
 }
 
 const modes = [
-  { key: 'product' as const, label: 'Product URL' },
-  { key: 'specs' as const, label: 'Raw Specifications' },
-  { key: 'url' as const, label: 'Supplier URL' },
-  { key: 'pdf' as const, label: 'Upload PDF' },
+  { key: 'product' as const, label: 'Add from a link', description: 'Manufacturer, supplier, retailer, Amazon, or Product page' },
+  { key: 'specs' as const, label: 'Paste product information', description: 'Specifications, supplier information, or other Product details' },
+  { key: 'pdf' as const, label: 'Upload document', description: 'Product specification or supplier document' },
 ];
 
 function formatFileSize(bytes: number) {
@@ -92,30 +91,31 @@ export function ProductInput({
     <section aria-labelledby={entryMode ? 'project-entry-title' : undefined} className="relative max-w-full overflow-hidden rounded-[2rem] border border-amber-400/20 bg-[#0b1728] p-5 shadow-soft sm:p-8">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,199,76,0.16),transparent_40%)]" />
       <div className="relative">
-        <div className="flex flex-wrap items-center gap-2">
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">How do you want to add this Product?</p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
           {modes.map((mode) => (
             <button
               key={mode.key}
               type="button"
               onClick={() => onModeChange(mode.key)}
               disabled={controlsDisabled}
-              aria-pressed={inputMode === mode.key}
-              className={`rounded-full px-3 py-2 text-sm transition ${
-                inputMode === mode.key ? 'bg-amber-400/15 text-amber-200' : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-slate-200'
+              aria-pressed={inputMode === mode.key || (mode.key === 'product' && inputMode === 'url')}
+              className={`rounded-xl border px-4 py-3 text-left text-sm transition ${
+                inputMode === mode.key || (mode.key === 'product' && inputMode === 'url') ? 'border-amber-300/40 bg-amber-400/15 text-amber-100' : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
               } disabled:cursor-not-allowed disabled:opacity-50`}
             >
-              {mode.label}
+              <span className="block font-semibold">{mode.label}</span><span className="mt-1 block text-xs leading-5 text-slate-400">{mode.description}</span>
             </button>
           ))}
         </div>
 
         <h1 id={entryMode ? 'project-entry-title' : undefined} className="mt-6 text-3xl font-semibold leading-tight sm:text-4xl">
-          {entryMode ? 'Create your product listing' : 'AI Product Intelligence Workspace'}
+          {entryMode ? 'Add your Product' : 'Product information'}
         </h1>
         <p className="mt-3 max-w-2xl text-base leading-7 text-slate-300">
           {entryMode
-            ? 'Add a product to begin. Choose a source, then analyze it before entering the listing workspace.'
-            : 'Prepare. Verify. Optimize. Publish. The workspace creates verified Shopify product catalogs using AI-powered intelligence and truth verification.'}
+            ? 'Choose the easiest source. ListingPilot will analyze it and prepare the Product workspace.'
+            : 'Update the Product source or run analysis again when needed.'}
         </p>
         {inputMode === 'pdf' ? (
           <div className="mt-4 inline-flex flex-wrap items-center gap-2 rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1.5 text-xs text-amber-100">
@@ -134,14 +134,14 @@ export function ProductInput({
             <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-slate-300">
               <div className="mb-2 flex items-center gap-2 text-slate-200">
                 <FileText className="h-4 w-4 text-amber-300" />
-                Raw specifications
+                Product information
               </div>
               <textarea
                 value={specText}
                 onChange={(event) => onSpecTextChange(event.target.value)}
                 disabled={controlsDisabled}
                 className="min-h-28 w-full resize-none rounded-lg border border-white/10 bg-[#07111f] px-3 py-3 text-sm outline-none focus:border-amber-400/50"
-                placeholder="Material, dimensions, care instructions, certifications, claims..."
+                placeholder="Paste specifications, supplier information, features, dimensions, certifications, and other Product details..."
               />
             </div>
           ) : inputMode === 'pdf' ? (
@@ -184,7 +184,7 @@ export function ProductInput({
             <label className="block rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-slate-200">
               <span className="mb-2 flex items-center gap-2">
                 <Link2 className="h-4 w-4 text-amber-300" />
-                {inputMode === 'product' ? 'Product URL' : 'Supplier URL'}
+                Product link
               </span>
               <input
                 type="url"
@@ -193,7 +193,7 @@ export function ProductInput({
                 onChange={(event) => onUrlChange(inputMode, event.target.value)}
                 disabled={controlsDisabled}
                 className="w-full rounded-lg border border-white/10 bg-[#07111f] px-3 py-3 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-amber-400/50"
-                placeholder={inputMode === 'product' ? 'https://store.example.com/products/...' : 'https://supplier.example.com/catalog/...'}
+                placeholder="https://example.com/product"
                 aria-invalid={Boolean(urlError || inputError)}
               />
               {urlError ? <span className="mt-2 block text-xs text-rose-300">{urlError}</span> : null}

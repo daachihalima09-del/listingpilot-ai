@@ -8,26 +8,23 @@ import {
 const workspaceId = '11111111-1111-4111-8111-111111111111';
 const projectId = '22222222-2222-4222-8222-222222222222';
 
-test('project creation normalizes names and accepts optional source data', () => {
+test('project creation normalizes names and accepts optional shared defaults', () => {
   const result = createProjectSchema.parse({
     workspaceId,
     name: '  Summer   Catalog  ',
-    sourceType: 'SUPPLIER_URL',
-    sourceUrl: 'https://supplier.example.com/product',
-    rawInput: null,
+    defaultProductType: '  Television ',
+    defaultCollection: ' Summer ',
   });
 
   assert.equal(result.name, 'Summer   Catalog');
-  assert.equal(result.sourceType, 'SUPPLIER_URL');
+  assert.equal(result.defaultProductType, 'Television');
+  assert.equal(result.defaultCollection, 'Summer');
 });
 
 test('project validation rejects unsafe URLs, short names, and unknown fields', () => {
   assert.equal(createProjectSchema.safeParse({
     workspaceId,
     name: 'x',
-    sourceType: 'SUPPLIER_URL',
-    sourceUrl: 'https://user:password@example.com/product',
-    rawInput: null,
     role: 'OWNER',
   }).success, false);
 });

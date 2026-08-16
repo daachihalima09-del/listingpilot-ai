@@ -123,6 +123,18 @@ export function publishingDraftFingerprint(draft: ListingDraft): string {
   });
 }
 
+export function isPublishingPlanContentCurrent(input: Readonly<{
+  productVersion: number;
+  planProductVersion: number;
+  currentDraft: ListingDraft | null;
+  planDraftFingerprint: string;
+}>): boolean {
+  return input.productVersion === input.planProductVersion
+    && (input.currentDraft
+      ? publishingDraftFingerprint(input.currentDraft)
+      : stableFingerprint(null)) === input.planDraftFingerprint;
+}
+
 export function requiredReviewSectionsComplete(draft: ListingDraft): boolean {
   const reviewed = new Set(draft.reviewWorkspace?.reviewedSections ?? []);
   return ['TITLE', 'OVERVIEW', 'SPECIFICATIONS', 'FEATURES', 'SEO', 'CATALOG'].every((section) => reviewed.has(section as never));

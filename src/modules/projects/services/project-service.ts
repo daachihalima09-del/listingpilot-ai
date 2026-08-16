@@ -32,6 +32,8 @@ export interface ProjectSummary {
   id: string;
   workspaceId: string;
   name: string;
+  defaultProductType?: string | null;
+  defaultCollection?: string | null;
   status: 'DRAFT' | 'READY' | 'ARCHIVED';
   sourceType:
     | 'RAW_SPECIFICATIONS'
@@ -91,6 +93,8 @@ function toProjectDetail(record: ProjectRecord): ProjectDetail {
     id: record.id,
     workspaceId: record.workspaceId,
     name: record.name,
+    defaultProductType: record.defaultProductType,
+    defaultCollection: record.defaultCollection,
     status: record.status,
     sourceType: record.sourceType,
     sourceUrl: record.sourceUrl,

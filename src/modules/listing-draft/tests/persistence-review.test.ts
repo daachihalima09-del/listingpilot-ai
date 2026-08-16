@@ -7,6 +7,7 @@ import {
   listingDraftProjectFields,
   prepareListingDraftForSave,
 } from '../persistence/draft-persistence.ts';
+import { readAuthoritativeListingDraft } from '../persistence/authoritative-draft-state.ts';
 import { ListingDraftError } from '../domain/errors.ts';
 import type { ListingDraftInput } from '../validation/draft-schema.ts';
 import { draftInstructions, validProviderOutput } from './fixtures.ts';
@@ -30,6 +31,17 @@ test('merchant edits remain editable and save as an internal project draft', asy
   assert.equal(fields.generatedListing.listingDraft.draftId, generated.draftId);
   assert.equal(fields.generatedListing.title, edited.title.value);
   assert.equal(fields.seoData.seoTitle, edited.seo.title.value);
+  assert.deepEqual(readAuthoritativeListingDraft(fields.generatedListing), saved);
+});
+
+test('Product-scoped draft save uses the Product route and Product repository without Project fallback', async () => {
+  const productRoute = await readFile(new URL('../../../app/api/projects/[projectId]/products/[productId]/listing-draft/route.ts', import.meta.url), 'utf8');
+  const sharedRoute = await readFile(new URL('../../../app/api/projects/[projectId]/listing-draft/route.ts', import.meta.url), 'utf8');
+  const service = await readFile(new URL('../persistence/project-draft-service.server.ts', import.meta.url), 'utf8');
+  assert.match(productRoute, /export \{ GET, PATCH, POST, PUT \}/u);
+  assert.match(sharedRoute, /containerProjectId: productId \? projectId : undefined/u);
+  assert.match(service, /saveUserProductState\(input\.actorUserId, \{ \.\.\.state, projectId: input\.containerProjectId, productId: input\.projectId \}\)/u);
+  assert.match(service, /context\.project\.generatedListing\?\.listingDraft/u);
 });
 
 test('a stored draft can be edited after a project version increment while unrelated stale drafts are rejected', async () => {

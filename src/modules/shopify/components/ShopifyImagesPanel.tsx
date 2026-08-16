@@ -395,7 +395,7 @@ export function ShopifyImagesPanel({
         <button type="button" disabled={disabled || !dirty} onClick={save} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-white/15 px-4 text-sm font-semibold text-white disabled:opacity-50">
           {activity === 'saving' ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save
         </button>
-        <button type="button" disabled={disabled} onClick={() => void saveAndNext()} className="min-h-11 rounded-xl bg-amber-300 px-4 text-sm font-semibold text-slate-950 disabled:opacity-50">Save &amp; Next →</button>
+        <button type="button" disabled={disabled} onClick={() => void saveAndNext()} className="min-h-11 rounded-xl bg-amber-300 px-4 text-sm font-semibold text-slate-950 disabled:opacity-50">Save &amp; Continue to Metafields →</button>
         <button type="button" disabled={disabled || !hasPublishedProduct || dirty || !configuration.images.length} onClick={() => void publish()} className="min-h-11 rounded-xl border border-white/15 px-4 text-sm font-semibold text-white disabled:opacity-50">
           Publish images
         </button>

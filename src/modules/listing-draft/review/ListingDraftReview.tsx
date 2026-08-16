@@ -17,7 +17,7 @@ import { listingReviewProgress } from './review-workspace.ts';
 interface ListingDraftReviewProps {
   readonly draft: ListingDraftInput;
   readonly onChange: (draft: ListingDraftInput) => void;
-  readonly onSave: () => void;
+  readonly onSave: () => Promise<boolean>;
   readonly onRegenerate: (section: DraftRegenerationSection) => void;
   readonly saving: boolean;
   readonly regenerating: DraftRegenerationSection | null;
@@ -28,7 +28,8 @@ interface ListingDraftReviewProps {
   readonly addingToGoldLibrary?: boolean;
   readonly view: DraftReviewTab;
   readonly onOpenListing?: () => void;
-  readonly onOpenAdvanced?: () => void;
+  readonly onContinue?: () => void;
+  readonly pricingAndVariants?: ReactNode;
 }
 const inputClass = 'mt-2 w-full rounded-xl border border-white/10 bg-[#07111f] px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-amber-300/50 disabled:cursor-not-allowed disabled:opacity-60';
 
@@ -85,7 +86,8 @@ export function ListingDraftReview({
   addingToGoldLibrary = false,
   view,
   onOpenListing,
-  onOpenAdvanced,
+  onContinue,
+  pricingAndVariants,
 }: ListingDraftReviewProps) {
   const [traceField, setTraceField] = useState<string | null>(null);
   const closeTraceRef = useRef<HTMLButtonElement>(null);
@@ -151,6 +153,16 @@ export function ListingDraftReview({
   const importantCraftFindings = workspace.craft?.findings
     .filter(({ severity }) => severity !== 'INFO')
     .slice(0, 5) ?? [];
+  const seoCard = <Card title="SEO" action={<span className="flex flex-wrap gap-2"><ReviewToggle reviewed={workspace.reviewedSections.includes('SEO')} onClick={() => toggleReviewed('SEO')} /><RegenerateButton section="SEO" busy={regenerating === 'SEO'} disabled={readOnly || Boolean(regenerating) || saving} onClick={() => onRegenerate('SEO')} /></span>}>
+    {[['seo.title', 'SEO Title', draft.seo.title], ['seo.description', 'Meta Description', draft.seo.description], ['seo.handle', 'URL Handle', draft.seo.handle]].map(([key, fieldLabel, value]) => {
+      const text = value as EditableTextField;
+      return <label key={key as string} className="block text-xs font-medium text-slate-400">{fieldLabel as string}{controls(key as string)}<textarea className={inputClass} rows={key === 'seo.description' ? 3 : 1} value={text.value} disabled={disabled(key as string)} onChange={(event) => change({ seo: { ...draft.seo, [String(key).split('.')[1]!]: field(event.target.value, text) } }, [key as string])} /></label>;
+    })}
+  </Card>;
+  const catalogCard = <Card title="Product Organization" action={<ReviewToggle reviewed={workspace.reviewedSections.includes('CATALOG')} onClick={() => toggleReviewed('CATALOG')} />}>
+    <div className="grid gap-3 sm:grid-cols-2">{[['catalog.productType', 'Product Type', draft.catalog.productType], ['catalog.vendor', 'Vendor', draft.catalog.vendor]].map(([key, fieldLabel, value]) => <label key={key as string} className="block text-xs font-medium text-slate-400">{fieldLabel as string}{controls(key as string)}<input className={inputClass} value={(value as EditableTextField).value} disabled={disabled(key as string)} onChange={(event) => change({ catalog: { ...draft.catalog, [String(key).split('.')[1]!]: field(event.target.value, value as EditableTextField) } }, [key as string])} /></label>)}</div>
+    {[['catalog.collections', 'Collections', draft.catalog.collections], ['catalog.tags', 'Tags', draft.catalog.tags]].map(([key, fieldLabel, values]) => <label key={key as string} className="block text-xs font-medium text-slate-400">{fieldLabel as string}{controls(key as string)}<textarea className={inputClass} rows={3} value={(values as EditableTextField[]).map(({ value }) => value).join('\n')} disabled={disabled(key as string)} onChange={(event) => change({ catalog: { ...draft.catalog, [String(key).split('.')[1]!]: lines(event.target.value).map((value, index) => field(value, (values as EditableTextField[])[index])) } }, [key as string])} /></label>)}
+  </Card>;
 
   return (
     <section aria-label="Merchant Review Workspace" className="rounded-[1.75rem] border border-amber-400/20 bg-[#081423] p-4 sm:p-5">
@@ -158,14 +170,14 @@ export function ListingDraftReview({
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Generated Listing</p>
           <h2 className="mt-1 text-xl font-semibold text-white">Review and refine your listing</h2>
-          <p className="mt-1 text-sm text-slate-400">Edit the listing here. Evidence and quality details remain available under Review and Advanced.</p>
+          <p className="mt-1 text-sm text-slate-400">Review Product content, SEO, and organization here. Detailed evidence remains available under Advanced.</p>
         </div>
         <div className="min-w-48 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
           <div className="flex items-center justify-between text-xs text-slate-300"><span>Listing Review</span><span>{progress}% Complete</span></div>
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-amber-300 transition-all" style={{ width: `${progress}%` }} /></div>
           <p className="mt-2 text-[11px] text-slate-500">{autosaveStatus}</p>
         </div>
-      </div> : <div><p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">{view === 'REVIEW' ? 'Listing Evidence & Craft' : 'Listing Technical Controls'}</p><h2 className="mt-1 text-xl font-semibold text-white">{view === 'REVIEW' ? 'Review the generated listing evidence' : 'Advanced listing fields'}</h2></div>}
+      </div> : <div><p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Product Intelligence &amp; Diagnostics</p><h2 className="mt-1 text-xl font-semibold text-white">Advanced evidence and technical controls</h2><p className="mt-1 text-sm text-slate-400">Detailed Product Truth, confidence, Craft findings, and optional technical fields.</p></div>}
 
       {error ? <div role="alert" className="mt-4 rounded-xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">{error}</div> : null}
 
@@ -196,20 +208,31 @@ export function ListingDraftReview({
               </div>
             ))}
           </Card>
-          <Card title="SEO Summary">
-            <p className="text-sm font-medium text-white">{draft.seo.title.value}</p>
-            <p className="text-sm text-slate-300">{draft.seo.description.value}</p>
-            <p className="text-xs text-slate-500">/{draft.seo.handle.value}</p>
+          <div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-300">SEO</p><div className="mt-3">{seoCard}</div></div>
+          <div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-300">Product organization</p><div className="mt-3">{catalogCard}</div></div>
+          {pricingAndVariants ? <div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-300">Pricing &amp; Variants</p><div className="mt-3">{pricingAndVariants}</div></div> : null}
+          <Card title="Listing approval">
+            <div className="grid gap-2 sm:grid-cols-2">{[
+              ['Product Content', ['TITLE', 'OVERVIEW', 'SPECIFICATIONS', 'FEATURES']],
+              ['SEO', ['SEO']],
+              ['Catalog', ['CATALOG']],
+              ['Pricing & Variants', []],
+            ].map(([label, sections]) => {
+              const complete = (sections as DraftReviewSection[]).every((section) => workspace.reviewedSections.includes(section));
+              return <div key={label as string} className="flex items-center justify-between rounded-xl border border-white/10 px-3 py-2 text-sm"><span>{label as string}</span><span className={complete ? 'text-emerald-200' : 'text-slate-400'}>{complete ? '✓ Reviewed' : sections.length ? 'Needs review' : 'Optional'}</span></div>;
+            })}</div>
+            <p className={`text-sm font-semibold ${publishingReviewComplete ? 'text-emerald-200' : 'text-amber-100'}`}>{publishingReviewComplete ? 'Listing ready for Shopify' : 'Complete each required review before approval.'}</p>
+            <button type="button" onClick={() => void onSave()} disabled={!publishingReviewComplete || readOnly || saving} className="rounded-xl bg-emerald-300 px-4 py-2.5 text-sm font-semibold text-slate-950 disabled:opacity-40">{saving ? 'Saving approval…' : 'Approve Listing'}</button>
           </Card>
         </div>
       ) : null}
 
-      {view === 'REVIEW' ? (
+      {view === 'ADVANCED' ? (
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
           <Card title="Shopify approval readiness">
             <p className="text-sm text-slate-300">{publishingReviewComplete ? 'All required listing sections are approved. Save this authoritative draft before preparing Shopify changes.' : `${workspace.reviewedSections.filter((section) => requiredPublishingSections.includes(section)).length} of ${requiredPublishingSections.length} required listing sections are approved.`}</p>
             <div className="mt-3 flex flex-wrap gap-2">
-              {!publishingReviewComplete ? <><button type="button" onClick={onOpenListing} className="rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10">Review listing sections</button><button type="button" onClick={onOpenAdvanced} className="rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10">Review SEO and catalog</button></> : <button type="button" onClick={onSave} disabled={readOnly || saving} className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-4 py-2 text-xs font-semibold text-slate-950 disabled:opacity-60"><Save className="h-3 w-3" aria-hidden="true" />{saving ? 'Saving approval…' : 'Approve and save draft'}</button>}
+              {!publishingReviewComplete ? <button type="button" onClick={onOpenListing} className="rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10">Review listing content, SEO, and organization</button> : <button type="button" onClick={() => void onSave()} disabled={readOnly || saving} className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-4 py-2 text-xs font-semibold text-slate-950 disabled:opacity-60"><Save className="h-3 w-3" aria-hidden="true" />{saving ? 'Saving approval…' : 'Approve and save draft'}</button>}
             </div>
           </Card>
           <Card title="Product Truth">
@@ -251,23 +274,14 @@ export function ListingDraftReview({
 
       {view === 'ADVANCED' ? (
         <div className="mt-4 grid gap-4">
-          <Card title="SEO" action={<span className="flex flex-wrap gap-2"><ReviewToggle reviewed={workspace.reviewedSections.includes('SEO')} onClick={() => toggleReviewed('SEO')} /><RegenerateButton section="SEO" busy={regenerating === 'SEO'} disabled={readOnly || Boolean(regenerating) || saving} onClick={() => onRegenerate('SEO')} /></span>}>
-            {[['seo.title', 'SEO Title', draft.seo.title], ['seo.description', 'SEO Description', draft.seo.description], ['seo.handle', 'URL Handle', draft.seo.handle]].map(([key, fieldLabel, value]) => {
-              const text = value as EditableTextField;
-              return <label key={key as string} className="block text-xs font-medium text-slate-400">{fieldLabel as string}{controls(key as string)}<textarea className={inputClass} rows={key === 'seo.description' ? 3 : 1} value={text.value} disabled={disabled(key as string)} onChange={(event) => change({ seo: { ...draft.seo, [String(key).split('.')[1]!]: field(event.target.value, text) } }, [key as string])} /></label>;
-            })}
-          </Card>
-          <Card title="Catalog" action={<ReviewToggle reviewed={workspace.reviewedSections.includes('CATALOG')} onClick={() => toggleReviewed('CATALOG')} />}>
-            {[['catalog.tags', 'Tags', draft.catalog.tags], ['catalog.collections', 'Collections', draft.catalog.collections]].map(([key, fieldLabel, values]) => <label key={key as string} className="block text-xs font-medium text-slate-400">{fieldLabel as string}{controls(key as string)}<textarea className={inputClass} rows={3} value={(values as EditableTextField[]).map(({ value }) => value).join('\n')} disabled={disabled(key as string)} onChange={(event) => change({ catalog: { ...draft.catalog, [String(key).split('.')[1]!]: lines(event.target.value).map((value, index) => field(value, (values as EditableTextField[])[index])) } }, [key as string])} /></label>)}
-            <div className="grid gap-3 sm:grid-cols-2">{[['catalog.productType', 'Product Type', draft.catalog.productType], ['catalog.vendor', 'Vendor', draft.catalog.vendor]].map(([key, fieldLabel, value]) => <label key={key as string} className="block text-xs font-medium text-slate-400">{fieldLabel as string}{controls(key as string)}<input className={inputClass} value={(value as EditableTextField).value} disabled={disabled(key as string)} onChange={(event) => change({ catalog: { ...draft.catalog, [String(key).split('.')[1]!]: field(event.target.value, value as EditableTextField) } }, [key as string])} /></label>)}</div>
-          </Card>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-300">Optional technical fields</p>
           <Card title="Metafields" action={<ReviewToggle reviewed={workspace.reviewedSections.includes('METAFIELDS')} onClick={() => toggleReviewed('METAFIELDS')} />}>{draft.metafields.length ? draft.metafields.map((item, index) => <label key={`${item.namespace}.${item.key}`} className="block text-xs text-slate-400">{item.namespace}.{item.key}{controls(`metafields.${index}`)}<input className={inputClass} value={item.value} disabled={disabled(`metafields.${index}`)} onChange={(event) => change({ metafields: draft.metafields.map((entry, itemIndex) => itemIndex === index ? { ...entry, value: event.target.value } : entry) }, [`metafields.${index}`])} /></label>) : <p className="text-sm text-slate-500">No approved metafield suggestions.</p>}</Card>
           <Card title="Alt Text" action={<ReviewToggle reviewed={workspace.reviewedSections.includes('MEDIA')} onClick={() => toggleReviewed('MEDIA')} />}>{draft.media.length ? draft.media.map((item, index) => <label key={item.imageReference} className="block text-xs text-slate-400">{item.imageReference}{controls(`media.${index}`)}<input className={inputClass} value={item.altText} disabled={disabled(`media.${index}`)} onChange={(event) => change({ media: draft.media.map((entry, itemIndex) => itemIndex === index ? { ...entry, altText: event.target.value } : entry) }, [`media.${index}`])} /></label>) : <p className="text-sm text-slate-500">No source images selected.</p>}</Card>
           <div className="grid gap-4 lg:grid-cols-3"><Card title="Localization">{workspace.advanced.localization.map((item) => <p key={item} className="text-sm text-slate-300">{item}</p>)}</Card><Card title="Publishing Constraints">{workspace.advanced.publishingConstraints.map((item) => <p key={item} className="text-sm text-slate-300">{item}</p>)}</Card><Card title="AI Policy Summary">{workspace.advanced.aiPolicySummary.map((item) => <p key={item} className="text-sm text-slate-300">{item}</p>)}</Card></div>
         </div>
       ) : null}
 
-      {!readOnly && view === 'LISTING' ? <div className="mt-5 flex flex-wrap gap-2"><button type="button" onClick={onSave} disabled={saving} className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-amber-300 disabled:cursor-wait disabled:opacity-60"><Save className="h-4 w-4" aria-hidden="true" />{saving ? 'Saving draft…' : 'Save Draft'}</button>{onAddToGoldLibrary ? <button type="button" onClick={onAddToGoldLibrary} disabled={draft.status !== 'SAVED' || saving || addingToGoldLibrary} title={draft.status !== 'SAVED' ? 'Save the reviewed draft first.' : undefined} className="inline-flex items-center gap-2 rounded-full border border-amber-300/25 px-5 py-2.5 text-sm font-semibold text-amber-100 transition hover:bg-amber-300/10 disabled:cursor-not-allowed disabled:opacity-45"><LibraryBig className="h-4 w-4" aria-hidden="true" />{addingToGoldLibrary ? 'Adding…' : 'Add to NEOVIX Gold Library'}</button> : null}</div> : null}
+      {!readOnly && view === 'LISTING' ? <div className="mt-5 flex flex-wrap gap-2"><button type="button" onClick={() => void onSave()} disabled={saving} className="inline-flex items-center gap-2 rounded-full border border-white/15 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10 disabled:cursor-wait disabled:opacity-60"><Save className="h-4 w-4" aria-hidden="true" />{saving ? 'Saving draft…' : 'Save Draft'}</button>{onContinue ? <button type="button" onClick={() => void (async () => { if (await onSave()) onContinue(); })()} disabled={saving} className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-amber-300 disabled:cursor-wait disabled:opacity-60">{saving ? 'Saving draft…' : 'Save & Continue to Images →'}</button> : null}{onAddToGoldLibrary ? <button type="button" onClick={onAddToGoldLibrary} disabled={draft.status !== 'SAVED' || saving || addingToGoldLibrary} title={draft.status !== 'SAVED' ? 'Save the reviewed draft first.' : undefined} className="inline-flex items-center gap-2 rounded-full border border-amber-300/25 px-5 py-2.5 text-sm font-semibold text-amber-100 transition hover:bg-amber-300/10 disabled:cursor-not-allowed disabled:opacity-45"><LibraryBig className="h-4 w-4" aria-hidden="true" />{addingToGoldLibrary ? 'Adding…' : 'Add to NEOVIX Gold Library'}</button> : null}</div> : null}
 
       {traceField ? (
         <div role="dialog" aria-modal="true" aria-labelledby="trace-title" className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/70 p-3 backdrop-blur-sm sm:items-center" onKeyDown={(event) => { if (event.key === 'Escape') setTraceField(null); }}>

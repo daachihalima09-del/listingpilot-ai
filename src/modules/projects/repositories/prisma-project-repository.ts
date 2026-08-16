@@ -13,7 +13,6 @@ import type {
   ProjectRepositoryTransaction,
   ProjectStateWrite,
 } from './project-repository';
-import type { ProjectSourceType } from '../validators/project';
 
 function nullableJson(value: unknown): Prisma.InputJsonValue | typeof Prisma.DbNull {
   return value === null
@@ -75,26 +74,15 @@ class PrismaProjectTransaction implements ProjectRepositoryTransaction {
   async createProject(input: {
     workspaceId: string;
     name: string;
-    sourceType: ProjectSourceType | null;
-    sourceUrl: string | null;
-    rawInput: string | null;
+    defaultProductType: string | null;
+    defaultCollection: string | null;
   }): Promise<ProjectRecord> {
     return this.transaction.project.create({
       data: {
         workspaceId: input.workspaceId,
         name: input.name,
-        sourceType: input.sourceType as PrismaProjectSourceType | null,
-        sourceUrl: input.sourceUrl,
-        rawInput: input.rawInput,
-        products: {
-          create: {
-            workspace: { connect: { id: input.workspaceId } },
-            name: input.name,
-            sourceType: input.sourceType as PrismaProjectSourceType | null,
-            sourceUrl: input.sourceUrl,
-            rawInput: input.rawInput,
-          },
-        },
+        defaultProductType: input.defaultProductType,
+        defaultCollection: input.defaultCollection,
       },
     });
   }

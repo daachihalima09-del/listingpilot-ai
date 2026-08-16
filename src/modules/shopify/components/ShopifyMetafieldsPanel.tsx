@@ -50,6 +50,7 @@ export function ShopifyMetafieldsPanel({
   canManage,
   hasPublishedProduct,
   initialConfiguration,
+  onNext,
 }: {
   projectId: string;
   configured: boolean;
@@ -57,6 +58,7 @@ export function ShopifyMetafieldsPanel({
   canManage: boolean;
   hasPublishedProduct: boolean;
   initialConfiguration: ShopifyMetafieldConfigurationDto;
+  onNext?: () => void;
 }) {
   const client = useRef(createShopifyMetafieldClient());
   const submitting = useRef(false);
@@ -89,8 +91,9 @@ export function ShopifyMetafieldsPanel({
     setFeedback(null);
   }
 
-  async function save() {
-    if (!controlsEnabled || !dirty || submitting.current) return;
+  async function save(): Promise<boolean> {
+    if (!controlsEnabled || submitting.current) return false;
+    if (!dirty) return true;
     submitting.current = true;
     setActivity('saving');
     setFeedback(null);
@@ -105,6 +108,7 @@ export function ShopifyMetafieldsPanel({
       setConfiguration(saved);
       setDirty(false);
       setFeedback({ tone: 'success', message: 'Metafield configuration saved.' });
+      return true;
     } catch (error) {
       setFeedback({
         tone: 'error',
@@ -112,6 +116,7 @@ export function ShopifyMetafieldsPanel({
           ? error.message
           : 'The metafield configuration could not be saved.',
       });
+      return false;
     } finally {
       submitting.current = false;
       setActivity('idle');
@@ -275,6 +280,18 @@ export function ShopifyMetafieldsPanel({
             : <Save className="h-4 w-4" aria-hidden="true" />}
           {activity === 'saving' ? 'Saving…' : 'Save configuration'}
         </button>
+        {onNext ? (
+          <button
+            type="button"
+            onClick={() => void (async () => {
+              if (await save()) onNext();
+            })()}
+            disabled={!controlsEnabled}
+            className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-amber-400 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50"
+          >
+            Save &amp; Continue to Shopify &#8594;
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={() => void publish()}

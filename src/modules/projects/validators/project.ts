@@ -29,6 +29,8 @@ const projectNameSchema = z
     'Project name cannot contain control characters.',
   );
 
+const optionalProjectDefaultSchema = z.string().trim().max(255).transform((value) => value || null).nullable().optional().default(null);
+
 const nullableHttpUrlSchema = z
   .string()
   .trim()
@@ -150,9 +152,8 @@ const versionedProjectIdentitySchema = projectIdentitySchema.extend({
 export const createProjectSchema = z.object({
   workspaceId: uuidSchema,
   name: projectNameSchema,
-  sourceType: z.enum(projectSourceTypes).nullable().optional().default(null),
-  sourceUrl: nullableHttpUrlSchema.optional().default(null),
-  rawInput: nullableRawInputSchema.optional().default(null),
+  defaultProductType: optionalProjectDefaultSchema,
+  defaultCollection: optionalProjectDefaultSchema,
 }).strict();
 
 export const listProjectsSchema = z.object({

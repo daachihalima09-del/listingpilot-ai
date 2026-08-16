@@ -49,7 +49,7 @@ export default async function NewProjectPage({
           </p>
           <h1 className="mt-3 text-3xl font-semibold text-white">Create a project</h1>
           <p className="mt-3 text-sm leading-6 text-slate-400">
-            Start a durable workspace for product analysis and listing preparation.
+            Create a group for related Products. You will add and analyze Products after the Project is created.
           </p>
 
           {tenant.role === 'OWNER' ? (
