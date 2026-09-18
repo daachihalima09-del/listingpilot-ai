@@ -24,6 +24,9 @@ import {
 import { generatedListingReadiness } from './authoritative-draft-state.ts';
 import { generateAndPersistListingDraft } from './generation-lifecycle.ts';
 import type { ListingGenerationTrace } from './generation-trace.server.ts';
+import { getAiUsageService } from '../../ai-usage/composition.server.ts';
+import { secureKey } from '../../ai-usage/domain.ts';
+import { runReservedAiOperation } from '../../ai-usage/service.ts';
 
 async function generationContext(actorUserId: string, workspaceId: string, projectId: string, containerProjectId?: string, trace?: ListingGenerationTrace) {
   trace?.start('authorization');
@@ -95,6 +98,7 @@ export async function generateProjectListingDraft(input: {
   readonly projectId: string;
   readonly containerProjectId?: string;
   readonly version: number;
+  readonly operationRequestId: string;
   readonly signal?: AbortSignal;
   readonly trace?: ListingGenerationTrace;
 }) {
@@ -107,32 +111,62 @@ export async function generateProjectListingDraft(input: {
       { eligibility: context.eligibility },
     );
   }
+  if (context.project.version !== input.version) {
+    throw new ListingDraftError('DRAFT_STALE_WRITE', 'This project changed before generation started. Refresh and try again.', 409);
+  }
   const readinessData = generatedListingReadiness(context.project.readinessData);
-  const result = await generateAndPersistListingDraft({
-    expectedVersion: input.version,
-    currentVersion: context.project.version,
-    generate: () => new ListingDraftEngine({ provider: createOpenAiGenerationProvider(input.trace), trace: input.trace })
-      .generate(context.instructions, input.signal),
-    persist: (draft) => {
-      input.trace?.start('persistence');
-      const state = {
-      workspaceId: input.workspaceId,
-      projectId: input.projectId,
-      version: input.version,
-      sourceType: context.project.sourceType,
-      sourceUrl: context.project.sourceUrl,
-      rawInput: context.project.rawInput,
-      analysisData: context.project.analysisData,
-      ...listingDraftProjectFields(draft),
-      readinessData,
-      };
-      const operation = input.containerProjectId
-        ? saveUserProductState(input.actorUserId, { ...state, projectId: input.containerProjectId, productId: input.projectId })
-        : saveUserProjectState(input.actorUserId, state);
-      return operation.then((project) => {
-        input.trace?.complete('persistence');
-        return project;
+  const usageLease = await getAiUsageService().reserve({
+    workspaceId: input.workspaceId,
+    userId: input.actorUserId,
+    projectId: input.containerProjectId ?? input.projectId,
+    productId: input.containerProjectId ? input.projectId : null,
+    operationType: 'LISTING_GENERATION',
+    requestKey: secureKey({
+      operation: 'LISTING_GENERATION', workspaceId: input.workspaceId,
+      projectId: input.containerProjectId ?? input.projectId,
+      productId: input.containerProjectId ? input.projectId : null,
+      version: input.version, operationRequestId: input.operationRequestId,
+      instructionFingerprint: context.instructions.instructionFingerprint,
+    }),
+    activeKey: secureKey({
+      resource: 'PRODUCT_AI', workspaceId: input.workspaceId,
+      productId: input.containerProjectId ? input.projectId : null,
+      projectId: input.containerProjectId ?? input.projectId,
+    }),
+  });
+  const result = await runReservedAiOperation({
+    lease: usageLease,
+    execute: async () => {
+      const generated = await generateAndPersistListingDraft({
+      expectedVersion: input.version,
+      currentVersion: context.project.version,
+      generate: async () => {
+        return new ListingDraftEngine({ provider: createOpenAiGenerationProvider(input.trace), trace: input.trace })
+          .generate(context.instructions, input.signal);
+      },
+      persist: (draft) => {
+        input.trace?.start('persistence');
+        const state = {
+          workspaceId: input.workspaceId,
+          projectId: input.projectId,
+          version: input.version,
+          sourceType: context.project.sourceType,
+          sourceUrl: context.project.sourceUrl,
+          rawInput: context.project.rawInput,
+          analysisData: context.project.analysisData,
+          ...listingDraftProjectFields(draft),
+          readinessData,
+        };
+        const operation = input.containerProjectId
+          ? saveUserProductState(input.actorUserId, { ...state, projectId: input.containerProjectId, productId: input.projectId })
+          : saveUserProjectState(input.actorUserId, state);
+        return operation.then((project) => {
+          input.trace?.complete('persistence');
+          return project;
+        });
+      },
       });
+      return { value: generated, providerRequestId: generated.draft.providerRequestId };
     },
   });
   return { ...result, readinessData };
@@ -192,6 +226,7 @@ export async function regenerateProjectListingDraft(input: {
   readonly containerProjectId?: string;
   readonly version: number;
   readonly section: DraftRegenerationSection;
+  readonly operationRequestId: string;
   readonly signal?: AbortSignal;
 }) {
   await resolveMerchantListingProfileAccess(input.actorUserId, input.workspaceId, true);
@@ -208,22 +243,47 @@ export async function regenerateProjectListingDraft(input: {
   if (!storedDraft) {
     throw new ListingDraftError('DRAFT_NOT_FOUND', 'Save the listing draft before regenerating a section.', 409);
   }
-  const engine = new ListingDraftRegenerationEngine(createOpenAiRegenerationProvider());
-  const draft = await engine.regenerate(storedDraft as ListingDraft, input.section, input.signal);
-  const projectFields = listingDraftProjectFields(draft);
-  const state = {
+  const usageLease = await getAiUsageService().reserve({
     workspaceId: input.workspaceId,
-    projectId: input.projectId,
-    version: input.version,
-    sourceType: project.sourceType,
-    sourceUrl: project.sourceUrl,
-    rawInput: project.rawInput,
-    analysisData: project.analysisData,
-    ...projectFields,
-    readinessData: project.readinessData,
-  };
-  const savedProject = input.containerProjectId
-    ? await saveUserProductState(input.actorUserId, { ...state, projectId: input.containerProjectId, productId: input.projectId })
-    : await saveUserProjectState(input.actorUserId, state);
-  return { draft, project: savedProject };
+    userId: input.actorUserId,
+    projectId: input.containerProjectId ?? input.projectId,
+    productId: input.containerProjectId ? input.projectId : null,
+    operationType: 'SECTION_REGENERATION',
+    requestKey: secureKey({
+      operation: 'SECTION_REGENERATION', workspaceId: input.workspaceId,
+      projectId: input.containerProjectId ?? input.projectId,
+      productId: input.containerProjectId ? input.projectId : null,
+      version: input.version, operationRequestId: input.operationRequestId,
+      draftId: (storedDraft as ListingDraft).draftId, section: input.section,
+    }),
+    activeKey: secureKey({
+      resource: 'PRODUCT_AI', workspaceId: input.workspaceId,
+      productId: input.containerProjectId ? input.projectId : null,
+      projectId: input.containerProjectId ?? input.projectId,
+    }),
+  });
+  const completed = await runReservedAiOperation({
+    lease: usageLease,
+    execute: async () => {
+      const engine = new ListingDraftRegenerationEngine(createOpenAiRegenerationProvider());
+      const draft = await engine.regenerate(storedDraft as ListingDraft, input.section, input.signal);
+    const projectFields = listingDraftProjectFields(draft);
+    const state = {
+      workspaceId: input.workspaceId,
+      projectId: input.projectId,
+      version: input.version,
+      sourceType: project.sourceType,
+      sourceUrl: project.sourceUrl,
+      rawInput: project.rawInput,
+      analysisData: project.analysisData,
+      ...projectFields,
+      readinessData: project.readinessData,
+    };
+    const savedProject = input.containerProjectId
+      ? await saveUserProductState(input.actorUserId, { ...state, projectId: input.containerProjectId, productId: input.projectId })
+      : await saveUserProjectState(input.actorUserId, state);
+      return { value: { draft, project: savedProject }, providerRequestId: draft.providerRequestId };
+    },
+  });
+  return completed;
 }

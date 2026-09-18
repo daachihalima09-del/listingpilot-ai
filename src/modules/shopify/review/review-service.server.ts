@@ -198,6 +198,7 @@ export async function publishApprovedReview(
   const productChanges: Record<string, unknown> = { id: context.shopifyProductGid };
   const productMap: Record<string, string> = {
     'product.title': 'title',
+    'product.handle': 'handle',
     'product.descriptionHtml': 'descriptionHtml',
     'product.vendor': 'vendor',
     'product.productType': 'productType',
@@ -214,6 +215,9 @@ export async function publishApprovedReview(
       ...(seoTitle !== undefined ? { title: seoTitle } : {}),
       ...(seoDescription !== undefined ? { description: seoDescription } : {}),
     };
+  }
+  if (plan.productFieldChanges['product.handle'] !== undefined) {
+    productChanges.redirectNewHandle = true;
   }
   const operations = (
     Object.keys(productChanges).length > 1 ? 1 : 0

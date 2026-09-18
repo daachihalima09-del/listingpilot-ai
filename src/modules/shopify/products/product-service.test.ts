@@ -10,7 +10,6 @@ test('creates a workspace-bound product service without CRUD behavior', () => {
         data: null,
         status: 200,
         requestId: null,
-        apiCallLimit: null,
       };
     },
   };

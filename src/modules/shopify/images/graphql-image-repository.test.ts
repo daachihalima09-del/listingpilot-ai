@@ -12,7 +12,6 @@ function response(data: unknown) {
     headers: new Headers(),
     data,
     requestId: null,
-    apiCallLimit: null,
   };
 }
 

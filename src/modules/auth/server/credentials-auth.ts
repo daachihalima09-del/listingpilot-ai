@@ -15,6 +15,8 @@ import {
 } from '@/modules/auth/server/session-config';
 import { createDatabaseSession } from '@/modules/auth/server/session';
 import { signInSchema } from '@/modules/auth/validators/credentials';
+import { enforceRateLimit } from '@/modules/ai-usage/composition.server';
+import { AiProtectionError } from '@/modules/ai-usage/domain';
 
 const DATABASE_SESSION_TOKEN_CLAIM = 'databaseSessionToken';
 
@@ -51,6 +53,16 @@ const credentialsAuthConfig = {
         });
         if (!result.success) {
           return null;
+        }
+
+        try {
+          await enforceRateLimit({
+            action: 'SIGN_IN',
+            subject: { normalizedEmail: result.data.email },
+          });
+        } catch (error) {
+          if (error instanceof AiProtectionError) return null;
+          throw error;
         }
 
         return authenticateCredentials(

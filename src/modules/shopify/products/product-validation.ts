@@ -5,6 +5,13 @@ const optionalProductText = (maximumLength: number) => z.preprocess(
   z.string().trim().max(maximumLength).optional(),
 );
 
+const optionalSeo = z.object({
+  title: z.string().trim().min(1).max(70).optional(),
+  description: z.string().trim().min(1).max(320).optional(),
+}).strict().refine((value) => Object.values(value).some((item) => item !== undefined), {
+  message: 'Provide at least one SEO field.',
+}).optional();
+
 export const shopifyProductCreateInputSchema = z.object({
   title: z.string().trim().min(1).max(255),
   descriptionHtml: z.preprocess(
@@ -13,6 +20,8 @@ export const shopifyProductCreateInputSchema = z.object({
   ),
   vendor: optionalProductText(255),
   productType: optionalProductText(255),
+  handle: z.string().trim().min(1).max(255).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u).optional(),
+  seo: optionalSeo,
   tags: z.array(z.string().trim().min(1).max(255)).max(250).default([]),
   status: z.enum(['ACTIVE', 'DRAFT']),
 }).strict().transform((input) => ({

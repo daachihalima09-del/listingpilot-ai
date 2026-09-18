@@ -92,3 +92,26 @@ test('local resources without stable Shopify identity are blocked', () => {
   assert.equal(field?.classification, 'BLOCKED');
   assert.deepEqual(field?.availableDecisions, ['SKIP']);
 });
+
+test('saved SEO and handle participate in existing-product comparison', () => {
+  const baseline = normalizeShopifyProductSnapshot(detailedProductFixture, '2026-07');
+  const review = generateShopifyChangeReview({
+    projectId: 'product-a', workspaceId: 'workspace', shopifyStoreId: 'store', baseline, remote: baseline,
+    project: {
+      generatedListing: { listingDraft: { seo: {
+        title: { value: 'Reviewed SEO title' },
+        description: { value: 'Reviewed SEO description' },
+        handle: { value: 'reviewed-product-handle' },
+      } } },
+      seoData: null,
+      shopifyVariantConfiguration: null,
+      shopifyMetafieldConfiguration: null,
+      shopifyImageConfiguration: null,
+    },
+  });
+  assert.equal(review.fields.find(({ fieldPath }) => fieldPath === 'product.seo.title')?.localValue, 'Reviewed SEO title');
+  assert.equal(review.fields.find(({ fieldPath }) => fieldPath === 'product.seo.description')?.localValue, 'Reviewed SEO description');
+  const handle = review.fields.find(({ fieldPath }) => fieldPath === 'product.handle');
+  assert.equal(handle?.localValue, 'reviewed-product-handle');
+  assert.equal(handle?.publishable, true);
+});

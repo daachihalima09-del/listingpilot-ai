@@ -5,6 +5,7 @@ import type {
 import {
   METAFIELD_DEFINITION_CREATE_MUTATION,
   METAFIELD_DEFINITION_QUERY,
+  METAFIELD_DEFINITIONS_QUERY,
   METAFIELDS_SET_MUTATION,
   PRODUCT_METAFIELDS_QUERY,
 } from './graphql-documents.ts';
@@ -41,6 +42,7 @@ const userError = z.object({
 }).passthrough();
 const definition = z.object({
   id: definitionGid,
+  name: z.string().min(1).optional(),
   namespace: shopifyMetafieldNamespaceSchema,
   key: shopifyMetafieldKeySchema,
   ownerType: z.literal('PRODUCT'),
@@ -86,6 +88,7 @@ export interface RemoteMetafieldDefinition {
   namespace: string;
   key: string;
   type: string;
+  name?: string;
 }
 
 export interface MetafieldSetInput {
@@ -98,6 +101,9 @@ export interface MetafieldSetInput {
 }
 
 export interface ShopifyGraphqlMetafieldRepository {
+  listDefinitions?(
+    workspaceId: string,
+  ): Promise<RemoteMetafieldDefinition[]>;
   getDefinition(
     workspaceId: string,
     definition: MetafieldCatalogDefinition,
@@ -212,6 +218,18 @@ export function createShopifyGraphqlMetafieldRepository(
         && item.ownerType === 'PRODUCT'
       ));
       return found ? toDefinition(found) : null;
+    },
+
+    async listDefinitions(workspaceId) {
+      const data = parsed(definitionQueryData, await execute(
+        workspaceId,
+        METAFIELD_DEFINITIONS_QUERY,
+        {},
+      ));
+      return data.metafieldDefinitions.nodes.map((item) => ({
+        ...toDefinition(item),
+        name: item.name,
+      }));
     },
 
     async createDefinition(workspaceId, requested) {

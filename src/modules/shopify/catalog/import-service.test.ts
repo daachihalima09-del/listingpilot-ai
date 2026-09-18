@@ -45,7 +45,6 @@ test('imports through a read-only query and atomically returns the created proje
           data: { data: { product: detailedProductFixture } },
           status: 200,
           requestId: null,
-          apiCallLimit: null,
         };
       },
     },
@@ -74,7 +73,6 @@ test('a uniqueness race returns the winning project and leaves no duplicate resu
           data: { data: { product: detailedProductFixture } },
           status: 200,
           requestId: null,
-          apiCallLimit: null,
         };
       },
     },
@@ -96,7 +94,7 @@ test('repairs one proven legacy publication without creating a duplicate project
   let repairs = 0;
   const result = await importShopifyProduct({
     apiVersion: '2026-07',
-    requester: { async request() { return { data: { data: { product: detailedProductFixture } }, status: 200, requestId: null, apiCallLimit: null }; } },
+    requester: { async request() { return { data: { data: { product: detailedProductFixture } }, status: 200, requestId: null }; } },
     repository: {
       async findExisting() { return { projectId: 'legacy-project', archived: false, state: 'LEGACY_RECOVERABLE_LINK' }; },
       async repairLegacy(input) {

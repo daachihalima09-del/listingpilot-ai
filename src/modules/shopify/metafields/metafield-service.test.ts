@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { demoProduct } from '../../../data/demo-product.ts';
 import {
   SHOPIFY_METAFIELD_CATALOG,
 } from './metafield-catalog.ts';
@@ -409,4 +410,32 @@ test('preview summarizes large JSON instead of exposing it', () => {
     ({ catalogId }) => catalogId === 'listingpilot_specs.specifications_json',
   );
   assert.equal(specification?.preview, null);
+});
+
+function televisionContext() {
+  const truthRows = [{ field: 'Screen size', value: '65 inch', source: 'Official', sourcesCount: 2, confidence: 98, status: 'Verified' as const }];
+  return projectContext({
+    configuration: null,
+    projectData: {
+      productType: 'Television',
+      analysisData: { activeProduct: { ...demoProduct, truthRows }, truthRows, analysisContext: null, conflictResolved: false },
+      generatedListing: null,
+      seoData: null,
+    },
+  });
+}
+
+test('definition discovery maps one exact compatible label and requires review for ambiguity', () => {
+  const compatible = { id: '1', name: 'Screen Size', namespace: 'custom', key: 'screen_size', type: 'single_line_text_field' };
+  const mapped = buildMetafieldConfigurationDto(televisionContext(), [], [compatible]);
+  assert.equal(mapped.recommendations.find(({ label }) => label === 'Screen size')?.status, 'MAPPED');
+  assert.equal(mapped.recommendations.find(({ label }) => label === 'Screen size')?.destination, 'custom.screen_size');
+  const ambiguous = buildMetafieldConfigurationDto(televisionContext(), [], [compatible, { ...compatible, id: '2', namespace: 'specs' }]);
+  assert.equal(ambiguous.recommendations.find(({ label }) => label === 'Screen size')?.status, 'NEEDS_REVIEW');
+  assert.equal(ambiguous.recommendations.find(({ label }) => label === 'Screen size')?.options.length, 2);
+});
+
+test('an incompatible Shopify definition never auto-maps', () => {
+  const result = buildMetafieldConfigurationDto(televisionContext(), [], [{ id: '1', name: 'Screen Size', namespace: 'custom', key: 'screen_size', type: 'number_integer' }]);
+  assert.equal(result.recommendations.find(({ label }) => label === 'Screen size')?.status, 'NEEDS_REVIEW');
 });

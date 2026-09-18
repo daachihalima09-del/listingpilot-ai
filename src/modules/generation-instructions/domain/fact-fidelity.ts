@@ -2,22 +2,57 @@ function normalizeNumericTypography(value: string): string {
   return value.replace(/[\u2080-\u2089]/gu, (digit) => String(digit.codePointAt(0)! - 0x2080));
 }
 
-// This is intentionally a presentation-only canonicalization. It does not
-// convert quantities: the original numeric token remains part of comparison.
+function scaledDecimal(value: string, scale: number): string | null {
+  if (!/^\d+(?:\.\d+)?$/u.test(value)) return null;
+  const scaled = Number(value) * scale;
+  return Number.isSafeInteger(scaled) ? String(scaled) : null;
+}
+
+function canonicalQuantity(value: string, scale: number, unit: string): string {
+  const amount = scaledDecimal(value, scale);
+  return amount === null ? `${value}-${unit}` : `${amount}-${unit}`;
+}
+
+// Exact conversions use integer canonical bases. No rounding or approximate
+// conversion is permitted: a value that cannot be represented exactly stays
+// in its original unit and therefore cannot match an incompatible quantity.
 function canonicalizeCommonUnits(value: string): string {
   return normalizeNumericTypography(value)
-    .replace(/(\d+(?:\.\d+)?)\s*(?:litres?|liters?|l)\b/giu, '$1 L')
-    .replace(/(\d+(?:\.\d+)?)\s*(?:-|\u2011|\u2013)?\s*(?:inches|inch|in)\b/giu, '$1 inch')
-    .replace(/(\d+(?:\.\d+)?)\s*(?:-|\u2011|\u2013)?\s*"/gu, '$1 inch')
-    .replace(/(\d+(?:\.\d+)?)\s*hz\b/giu, '$1 Hz')
-    .replace(/(\d+(?:\.\d+)?)\s*w\b/giu, '$1 W')
-    .replace(/(\d+(?:\.\d+)?)\s*kg\b/giu, '$1 kg')
-    .replace(/(\d+(?:\.\d+)?)\s*ml\b/giu, '$1 ml')
-    .replace(/(\d+(?:\.\d+)?)\s*(?:microns?|µm)\b/giu, '$1 micron');
+    .replace(/(\d+(?:\.\d+)?)\s*(?:-|\u2011|\u2013)?\s*(?:litres?|liters?|l)\b/giu, (_, amount: string) => canonicalQuantity(amount, 1_000, 'volume-ml'))
+    .replace(/(\d+(?:\.\d+)?)\s*ml\b/giu, (_, amount: string) => canonicalQuantity(amount, 1, 'volume-ml'))
+    .replace(/(\d+(?:\.\d+)?)\s*cm\b/giu, (_, amount: string) => canonicalQuantity(amount, 10, 'length-mm'))
+    .replace(/(\d+(?:\.\d+)?)\s*mm\b/giu, (_, amount: string) => canonicalQuantity(amount, 1, 'length-mm'))
+    .replace(/(\d+(?:\.\d+)?)\s*tb\b/giu, (_, amount: string) => canonicalQuantity(amount, 1_000, 'storage-gb'))
+    .replace(/(\d+(?:\.\d+)?)\s*gb\b/giu, (_, amount: string) => canonicalQuantity(amount, 1, 'storage-gb'))
+    .replace(/(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|hr)\b/giu, (_, amount: string) => canonicalQuantity(amount, 60, 'duration-min'))
+    .replace(/(\d+(?:\.\d+)?)\s*(?:minutes?|mins?|min)\b/giu, (_, amount: string) => canonicalQuantity(amount, 1, 'duration-min'))
+    .replace(/(\d+(?:\.\d+)?)\s*(?:-|\u2011|\u2013)?\s*(?:inches|inch|in)\b/giu, '$1-length-inch')
+    .replace(/(\d+(?:\.\d+)?)\s*(?:-|\u2011|\u2013)?\s*"/gu, '$1-length-inch')
+    .replace(/(\d+(?:\.\d+)?)\s*hz\b/giu, '$1-frequency-hz')
+    .replace(/(\d+(?:\.\d+)?)\s*w\b/giu, '$1-power-w')
+    .replace(/(\d+(?:\.\d+)?)\s*kg\b/giu, '$1-mass-kg')
+    .replace(/(\d+(?:\.\d+)?)\s*(?:microns?|µm)\b/giu, '$1-length-micrometre')
+    .replace(/(\d+(?:\.\d+)?)\s*m²/giu, '$1-area-m2')
+    .replace(/(\d+(?:\.\d+)?)\s*ft²/giu, '$1-area-ft2')
+    .replace(/(\d+(?:\.\d+)?)\s*(?:m2|sq\.?\s*m|square\s+met(?:res?|ers?))\b/giu, '$1-area-m2')
+    .replace(/(\d+(?:\.\d+)?)\s*(?:ft2|sq\.?\s*ft|square\s+feet)\b/giu, '$1-area-ft2')
+    .replace(/\bTV\b/gu, 'television');
 }
 
 export function factualTokens(value: string): readonly string[] {
-  return [...new Set(canonicalizeCommonUnits(value).match(/\b(?=[a-z0-9.-]*\d)[a-z0-9]+(?:[.-][a-z0-9]+)*\b/giu) ?? [])];
+  const canonical = canonicalizeCommonUnits(value);
+  const numericOrIdentifier = canonical.match(/\b(?=[a-z0-9.-]*\d)[a-z0-9]+(?:[.-][a-z0-9]+)*\b/giu) ?? [];
+  const technicalAcronyms = canonical.match(/\b[A-Z]{2,}(?:-[A-Z0-9]+)*\b/gu) ?? [];
+  return [...new Set([...numericOrIdentifier, ...technicalAcronyms])];
+}
+
+function presentedFactualTokens(value: string): readonly string[] {
+  const normalized = normalizeNumericTypography(value);
+  const numeric = normalized.match(/\b\d+(?:\.\d+)?\s*(?:m²|ft²)|\b\d+(?:\.\d+)?\s*(?:-|\u2011|\u2013)?\s*(?:litres?|liters?|l|ml|cm|mm|tb|gb|hours?|hrs?|hr|minutes?|mins?|min|inches|inch|in|hz|w|kg|microns?|µm|m2|ft2|sq\.?\s*m|sq\.?\s*ft|square\s+met(?:res?|ers?)|square\s+feet)\b|\b\d+(?:\.\d+)?\s*(?:-|\u2011|\u2013)?\s*"|\b(?=[a-z0-9.-]*\d)[a-z0-9]+(?:[.-][a-z0-9]+)*\b/giu) ?? [];
+  const acronyms = (normalized.match(/\b[A-Z]{2,}(?:-[A-Z0-9]+)*\b/gu) ?? [])
+    .filter((acronym) => !numeric.some((token) => new RegExp(`\\b${acronym}\\b`, 'iu').test(token)));
+  const tokens = [...numeric, ...acronyms];
+  return [...new Set(tokens.map((token) => token.trim()))];
 }
 
 export function comparableFactTokens(value: string): readonly string[] {
@@ -99,9 +134,19 @@ export function unsupportedFactualTokens(
   value: string,
   evidenceValues: readonly string[],
 ): readonly string[] {
-  const evidenceTokens = new Set(evidenceValues.flatMap(comparableFactTokens));
-  return factualTokens(value).filter((token) => {
-    const tokenParts = comparableFactTokens(token);
-    return tokenParts.length > 0 && tokenParts.some((part) => !evidenceTokens.has(part));
+  const evidenceFactualTokens = evidenceValues.flatMap(factualTokens);
+  const evidenceTokens = new Set(evidenceFactualTokens.map((token) => comparableFactTokens(token).join(':')));
+  const evidenceParts = new Set(evidenceValues.flatMap(comparableFactTokens));
+  const quantityMarkers = new Set(['area', 'duration', 'frequency', 'length', 'mass', 'power', 'storage', 'volume']);
+  return presentedFactualTokens(value).filter((token) => {
+    const canonicalToken = factualTokens(token)[0] ?? token;
+    const parts = comparableFactTokens(canonicalToken);
+    const comparable = parts.join(':');
+    if (!comparable.length || evidenceTokens.has(comparable)) return false;
+    // Handles are often deterministic compounds of independently cited Brand
+    // and Model facts. Quantity tokens remain atomic so values/units cannot be
+    // recombined from unrelated evidence rows.
+    return parts.some((part) => quantityMarkers.has(part))
+      || parts.some((part) => !evidenceParts.has(part));
   });
 }

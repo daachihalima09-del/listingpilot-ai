@@ -33,6 +33,13 @@ import {
   metafieldConfigurationInputSchema,
   normalizeMetafieldValue,
 } from './metafield-validation.ts';
+import {
+  classifyCatalogCategory,
+  nativeShopifyLabels,
+  normalizeFactLabel,
+  recommendationsForCategory,
+} from './metafield-recommendations.ts';
+import { projectAnalysisDataSchema } from '../../projects/validators/project.ts';
 
 export interface ShopifyMetafieldPublishResult {
   outcome: 'PUBLISHED' | 'UNCHANGED' | 'PARTIAL';
@@ -89,6 +96,7 @@ function persistedPublishedAt(
 function mapped(context: ShopifyMetafieldProjectContext) {
   return mapProjectToMetafields({
     projectId: context.projectId,
+    productType: context.projectData.productType,
     ...context.projectData,
     lastPublishedAt: persistedPublishedAt(context),
   });
@@ -115,11 +123,83 @@ function safePreview(field: MappedMetafield | undefined): string | null {
 export function buildMetafieldConfigurationDto(
   context: ShopifyMetafieldProjectContext,
   conflicts: DefinitionConflict[] = [],
+  remoteDefinitions: RemoteMetafieldDefinition[] = [],
 ): ShopifyMetafieldConfigurationDto {
   const byId = new Map(mapped(context).map((field) => [field.catalogId, field]));
   const persisted = new Map(
     context.configuration?.fields.map((field) => [field.catalogId, field]) ?? [],
   );
+  const analysis = projectAnalysisDataSchema.safeParse(context.projectData.analysisData);
+  const category = classifyCatalogCategory(
+    context.projectData.productType,
+    context.projectData.analysisData,
+  );
+  const recommendationRules = recommendationsForCategory(category);
+  const normalizeDefinitionName = (value: string) => value.toLocaleLowerCase('en-US').replace(/[^a-z0-9]+/g, ' ').trim();
+  const discovery = new Map(recommendationRules.map((rule) => {
+    const expected = getMetafieldCatalogDefinition(rule.catalogId)!;
+    const named = remoteDefinitions.filter((remote) => normalizeDefinitionName(remote.name ?? '') === normalizeDefinitionName(rule.label));
+    const compatible = remoteDefinitions.filter((remote) => remote.type === expected.type && (
+      (remote.namespace === expected.namespace && remote.key === expected.key) || named.includes(remote)
+    ));
+    return [rule.catalogId, { compatible, incompatible: named.some(({ type }) => type !== expected.type) }];
+  }));
+  const recommendations = recommendationRules.flatMap((rule) => {
+    const current = byId.get(rule.catalogId);
+    if (!current) return [];
+    const stored = persisted.get(rule.catalogId);
+    const found = discovery.get(rule.catalogId)!;
+    const selected = stored ?? (found.compatible.length === 1 ? found.compatible[0] : undefined);
+    const needsReview = found.incompatible || found.compatible.length > 1;
+    return [{
+      catalogId: rule.catalogId,
+      label: rule.label,
+      value: safePreview(current) ?? current.value,
+      enabled: stored?.enabled ?? true,
+      status: needsReview ? 'NEEDS_REVIEW' as const : selected ? 'MAPPED' as const : 'RECOMMENDED' as const,
+      destination: selected ? `${selected.namespace}.${selected.key}` : `listingpilot_specs.${rule.catalogId.split('.').at(-1)}`,
+      note: needsReview
+        ? 'Choose one compatible Shopify field before publishing.'
+        : selected
+        ? 'Uses the saved compatible mapping for this product.'
+        : 'A compatible Shopify definition will be proposed when you explicitly publish.',
+      options: found.compatible.map((candidate) => ({ namespace: candidate.namespace, key: candidate.key, label: candidate.name ?? `${candidate.namespace}.${candidate.key}` })),
+    }];
+  });
+  if (category === 'GENERIC') {
+    const generic = byId.get('listingpilot_specs.specifications_json');
+    if (generic) {
+      const stored = persisted.get(generic.catalogId);
+      recommendations.push({
+        catalogId: generic.catalogId,
+        label: 'Verified product specifications',
+        value: safePreview(generic) ?? generic.value,
+        enabled: stored?.enabled ?? true,
+        status: stored ? 'MAPPED' : 'RECOMMENDED',
+        destination: 'listingpilot_specs.specifications_json',
+        note: 'Generic verified facts are stored as structured data without category guessing.',
+        options: [],
+      });
+    }
+  }
+  const reviewItems = analysis.success ? analysis.data.truthRows
+    .filter(({ status, value, field }) => status !== 'Verified' && status !== 'Missing' && value.trim() && !nativeShopifyLabels.has(normalizeFactLabel(field)))
+    .map((row) => ({
+      catalogId: `review.${normalizeFactLabel(row.field).replaceAll(' ', '_')}`,
+      label: row.field,
+      value: row.value,
+      enabled: false,
+      status: 'NEEDS_REVIEW' as const,
+      destination: 'Not mapped',
+      note: row.status === 'Conflict'
+        ? 'Conflicting Product Truth must be resolved before this can be enabled.'
+        : 'This value is not verified and will not be published.',
+      options: [],
+    })) : [];
+  const nativeFields = analysis.success ? analysis.data.truthRows
+    .filter(({ status, value, field }) => status === 'Verified' && value.trim() && nativeShopifyLabels.has(normalizeFactLabel(field)))
+    .map(({ field, value }) => ({ label: field, value, note: 'Managed in Listing' as const })) : [];
+  const optional = 0;
   return {
     schemaVersion: SHOPIFY_METAFIELD_CATALOG_VERSION,
     version: context.configuration?.version ?? 0,
@@ -129,6 +209,8 @@ export function buildMetafieldConfigurationDto(
     fields: SHOPIFY_METAFIELD_CATALOG.map((definition) => {
       const current = byId.get(definition.catalogId);
       const stored = persisted.get(definition.catalogId);
+      const discovered = discovery.get(definition.catalogId)?.compatible;
+      const destination = stored ?? (discovered?.length === 1 ? discovered[0] : undefined);
       const publicationStatus = !stored?.lastPublishedHash
         ? 'NOT_PUBLISHED'
         : stored.lastPublishedHash === current?.valueHash
@@ -144,6 +226,8 @@ export function buildMetafieldConfigurationDto(
         hasValue: Boolean(current),
         preview: safePreview(current),
         publicationStatus,
+        namespace: destination?.namespace ?? definition.namespace,
+        key: destination?.key ?? definition.key,
       };
     }),
     lastPublishedAt: context.configuration?.fields
@@ -155,24 +239,33 @@ export function buildMetafieldConfigurationDto(
       displayName: getMetafieldCatalogDefinition(conflict.catalogId)
         ?.displayName ?? 'ListingPilot field',
     })),
+    catalogCategory: category,
+    summary: {
+      recommended: recommendations.filter(({ status }) => status === 'RECOMMENDED').length,
+      mapped: recommendations.filter(({ status }) => status === 'MAPPED').length,
+      needsReview: reviewItems.length + conflicts.length,
+      optional,
+    },
+    recommendations: [...recommendations, ...reviewItems],
+    nativeFields,
   };
 }
 
 function fieldsForSave(
   context: ShopifyMetafieldProjectContext,
-  choices: Map<string, boolean>,
+  choices: Map<string, { enabled: boolean; namespace?: string; key?: string }>,
 ) {
   const byId = new Map(mapped(context).map((field) => [field.catalogId, field]));
   return SHOPIFY_METAFIELD_CATALOG.map((definition) => {
     const value = byId.get(definition.catalogId);
     return {
       catalogId: definition.catalogId,
-      namespace: definition.namespace,
-      key: definition.key,
+      namespace: choices.get(definition.catalogId)?.namespace ?? definition.namespace,
+      key: choices.get(definition.catalogId)?.key ?? definition.key,
       type: definition.type,
       value: value?.value ?? null,
       valueHash: value?.valueHash ?? null,
-      enabled: choices.get(definition.catalogId) ?? true,
+      enabled: choices.get(definition.catalogId)?.enabled ?? true,
     };
   });
 }
@@ -190,8 +283,9 @@ async function refreshedContext(
 export async function getShopifyMetafieldConfiguration(
   _repository: ShopifyMetafieldRepository,
   context: ShopifyMetafieldProjectContext | null,
+  remoteDefinitions: RemoteMetafieldDefinition[] = [],
 ) {
-  return buildMetafieldConfigurationDto(requireProject(context));
+  return buildMetafieldConfigurationDto(requireProject(context), [], remoteDefinitions);
 }
 
 export async function saveShopifyMetafieldConfiguration(
@@ -202,10 +296,10 @@ export async function saveShopifyMetafieldConfiguration(
   const project = requireOwner(context);
   const input = metafieldConfigurationInputSchema.parse(untrustedInput);
   const choices = new Map(input.fields.map(
-    ({ catalogId, enabled }) => [catalogId, enabled],
+    ({ catalogId, enabled, namespace, key }) => [catalogId, { enabled, namespace, key }],
   ));
   for (const definition of SHOPIFY_METAFIELD_CATALOG) {
-    if (definition.required && !choices.get(definition.catalogId)) {
+    if (definition.required && !choices.get(definition.catalogId)?.enabled) {
       throw new ShopifyMetafieldError(
         'SHOPIFY_METAFIELD_VALIDATION_FAILED',
         'Required system metafields must remain enabled.',
@@ -264,15 +358,16 @@ async function ensureDefinition(
   if (!catalog || !context.shopifyStoreId) {
     throw new Error('Approved catalog or connected store unavailable.');
   }
-  let definition = await shopify.getDefinition(context.workspaceId, catalog);
+  const destination = { ...catalog, namespace: field.namespace, key: field.key };
+  let definition = await shopify.getDefinition(context.workspaceId, destination);
   let created = false;
   if (!definition) {
     try {
-      definition = await shopify.createDefinition(context.workspaceId, catalog);
+      definition = await shopify.createDefinition(context.workspaceId, destination);
       created = true;
     } catch (error) {
       if (!(error instanceof ShopifyMetafieldDefinitionRaceError)) throw error;
-      definition = await shopify.getDefinition(context.workspaceId, catalog);
+      definition = await shopify.getDefinition(context.workspaceId, destination);
       if (!definition) throw error;
     }
   }

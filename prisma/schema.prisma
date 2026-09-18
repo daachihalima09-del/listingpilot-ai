@@ -240,6 +240,19 @@ enum CraftRuleProposalStatus {
   APPLIED_EXTERNALLY
 }
 
+enum AiUsageOperationType {
+  PRODUCT_ANALYSIS
+  LISTING_GENERATION
+  SECTION_REGENERATION
+}
+
+enum AiUsageOperationStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+  EXPIRED
+}
+
 model User {
   id                           String                        @id @default(uuid()) @db.Uuid
   email                        String                        @unique @db.VarChar(320)
@@ -262,6 +275,7 @@ model User {
   shopifyChangeReviews         ShopifyChangeReview[]
   shopifyPublishingPlans       ShopifyPublishingPlan[]
   shopifyBulkPublishingBatches ShopifyBulkPublishingBatch[]
+  aiUsageOperations            AiUsageOperation[]
 
   @@index([status])
   @@map("users")
@@ -302,6 +316,8 @@ model Workspace {
   shopifyPublishingPlans       ShopifyPublishingPlan[]
   shopifyBulkPublishingBatches ShopifyBulkPublishingBatch[]
   productSourceImages          ProductSourceImage[]
+  aiUsageOperations            AiUsageOperation[]
+  aiRateLimitEvents            AiRateLimitEvent[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -419,6 +435,7 @@ model Project {
   listingCalibrationReports     ListingCalibrationReport[]
   products                      Product[]
   productSourceImages           ProductSourceImage[]
+  aiUsageOperations             AiUsageOperation[]
 
   @@unique([id, workspaceId])
   @@index([workspaceId])
@@ -461,6 +478,7 @@ model Product {
   shopifyPublishingPlans        ShopifyPublishingPlan[]
   shopifyBulkPublishingItems    ShopifyBulkPublishingItem[]
   sourceImages                  ProductSourceImage[]
+  aiUsageOperations             AiUsageOperation[]
 
   @@unique([id, workspaceId])
   @@unique([id, projectId, workspaceId])
@@ -469,6 +487,51 @@ model Product {
   @@index([workspaceId, updatedAt])
   @@index([archivedAt])
   @@map("products")
+}
+
+model AiUsageOperation {
+  id                String                 @id @default(uuid()) @db.Uuid
+  workspaceId       String                 @map("workspace_id") @db.Uuid
+  userId            String                 @map("user_id") @db.Uuid
+  projectId         String?                @map("project_id") @db.Uuid
+  productId         String?                @map("product_id") @db.Uuid
+  operationType     AiUsageOperationType   @map("operation_type")
+  requestKey        String                 @map("request_key") @db.Char(64)
+  activeKey         String?                @unique @map("active_key") @db.Char(64)
+  status            AiUsageOperationStatus @default(RUNNING)
+  attemptCount      Int                    @default(1) @map("attempt_count")
+  providerStartedAt DateTime?              @map("provider_started_at")
+  providerRequestId String?                @map("provider_request_id") @db.VarChar(255)
+  errorCode         String?                @map("error_code") @db.VarChar(100)
+  leaseExpiresAt    DateTime               @map("lease_expires_at")
+  startedAt         DateTime               @default(now()) @map("started_at")
+  completedAt       DateTime?              @map("completed_at")
+  createdAt         DateTime               @default(now()) @map("created_at")
+  updatedAt         DateTime               @updatedAt @map("updated_at")
+  workspace         Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user              User                   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  project           Project?               @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  product           Product?               @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, requestKey])
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, status, leaseExpiresAt])
+  @@index([productId, workspaceId, createdAt])
+  @@index([operationType, createdAt])
+  @@map("ai_usage_operations")
+}
+
+model AiRateLimitEvent {
+  id          String     @id @default(uuid()) @db.Uuid
+  workspaceId String?    @map("workspace_id") @db.Uuid
+  subjectHash String     @map("subject_hash") @db.Char(64)
+  action      String     @db.VarChar(64)
+  createdAt   DateTime   @default(now()) @map("created_at")
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([action, subjectHash, createdAt])
+  @@index([workspaceId, action, createdAt])
+  @@map("ai_rate_limit_events")
 }
 
 model ListingGoldFixture {

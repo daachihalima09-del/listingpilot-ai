@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { getShopifyMetafieldViewState } from './metafield-view-state.ts';
+import { canSaveLocalMetafieldConfiguration, getShopifyMetafieldViewState } from './metafield-view-state.ts';
 
 const ready = {
   configured: true,
@@ -34,3 +34,7 @@ test('derives configuration, disconnected, product, read-only, empty, and ready 
   assert.equal(getShopifyMetafieldViewState(ready), 'READY');
 });
 
+test('local configuration remains editable without a Shopify connection', () => {
+  assert.equal(canSaveLocalMetafieldConfiguration({ canManage: true, hasMappedData: true }), true);
+  assert.equal(canSaveLocalMetafieldConfiguration({ canManage: false, hasMappedData: true }), false);
+});

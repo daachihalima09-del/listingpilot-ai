@@ -28,7 +28,7 @@ interface ProductInputProps {
 const modes = [
   { key: 'product' as const, label: 'Add from a link', description: 'Manufacturer, supplier, retailer, Amazon, or Product page' },
   { key: 'specs' as const, label: 'Paste product information', description: 'Specifications, supplier information, or other Product details' },
-  { key: 'pdf' as const, label: 'Upload document', description: 'Product specification or supplier document' },
+  { key: 'pdf' as const, label: 'Document upload — coming later', description: 'Use a Product link or paste information for live analysis' },
 ];
 
 function formatFileSize(bytes: number) {
@@ -98,7 +98,7 @@ export function ProductInput({
               key={mode.key}
               type="button"
               onClick={() => onModeChange(mode.key)}
-              disabled={controlsDisabled}
+              disabled={controlsDisabled || mode.key === 'pdf'}
               aria-pressed={inputMode === mode.key || (mode.key === 'product' && inputMode === 'url')}
               className={`rounded-xl border px-4 py-3 text-left text-sm transition ${
                 inputMode === mode.key || (mode.key === 'product' && inputMode === 'url') ? 'border-amber-300/40 bg-amber-400/15 text-amber-100' : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'

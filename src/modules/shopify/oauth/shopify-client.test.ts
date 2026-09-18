@@ -51,25 +51,62 @@ test('rejects non-2xx and invalid token responses', async () => {
   );
 });
 
-test('verifies safe shop metadata and rejects domain mismatches', async () => {
+test('verifies shop metadata with GraphQL and rejects domain mismatches', async () => {
+  let requestedUrl = '';
+  let requestedInit: RequestInit | undefined;
   const verified = await verifyShopifyShop(config, {
     shopDomain: 'example.myshopify.com',
     accessToken: 'token',
-  }, mockFetch(Response.json({
-    shop: { name: 'Example', myshopify_domain: 'example.myshopify.com' },
-  })));
+  }, async (input, init) => {
+    requestedUrl = String(input);
+    requestedInit = init;
+    return Response.json({
+      data: {
+        shop: {
+          id: 'gid://shopify/Shop/123',
+          name: 'Example',
+          myshopifyDomain: 'example.myshopify.com',
+        },
+      },
+    });
+  });
   assert.deepEqual(verified, {
     name: 'Example',
     shopDomain: 'example.myshopify.com',
   });
+  assert.equal(requestedUrl, 'https://example.myshopify.com/admin/api/2026-07/graphql.json');
+  assert.equal(requestedInit?.method, 'POST');
+  assert.match(String(requestedInit?.body), /ListingPilotVerifyShop/u);
+  assert.equal(String(requestedInit?.body).includes('shop.json'), false);
 
   await assert.rejects(
     verifyShopifyShop(config, {
       shopDomain: 'example.myshopify.com',
       accessToken: 'token',
     }, mockFetch(Response.json({
-      shop: { name: 'Other', myshopify_domain: 'other.myshopify.com' },
+      data: {
+        shop: {
+          id: 'gid://shopify/Shop/456',
+          name: 'Other',
+          myshopifyDomain: 'other.myshopify.com',
+        },
+      },
     }))),
     ShopifyCallbackError,
   );
+});
+
+test('fails safely for expired tokens and GraphQL errors', async () => {
+  for (const response of [
+    Response.json({ errors: [{ message: 'Access denied' }] }),
+    Response.json({}, { status: 401 }),
+  ]) {
+    await assert.rejects(
+      verifyShopifyShop(config, {
+        shopDomain: 'example.myshopify.com',
+        accessToken: 'token',
+      }, mockFetch(response)),
+      ShopifyCallbackError,
+    );
+  }
 });

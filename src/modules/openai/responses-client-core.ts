@@ -56,6 +56,7 @@ interface ResponsesBody {
 
 export interface OpenAiResponsesClientOptions {
   readonly apiKey: string;
+  readonly defaultModel?: string;
   readonly fetcher?: typeof fetch;
   readonly timeoutMs?: number;
   readonly maximumAttempts?: number;
@@ -96,6 +97,7 @@ function retryDelay(response: Response, attempt: number): number {
 export class OpenAiResponsesClient {
   private readonly apiKey: string;
   private readonly fetcher: typeof fetch;
+  private readonly defaultModel: string;
   private readonly timeoutMs: number;
   private readonly maximumAttempts: number;
   private readonly sleep: (milliseconds: number) => Promise<void>;
@@ -110,6 +112,7 @@ export class OpenAiResponsesClient {
       );
     }
     this.apiKey = options.apiKey;
+    this.defaultModel = options.defaultModel?.trim() || 'gpt-5.6-sol';
     this.fetcher = options.fetcher ?? fetch;
     this.timeoutMs = options.timeoutMs ?? 60_000;
     this.maximumAttempts = Math.max(1, Math.min(options.maximumAttempts ?? 2, 3));
@@ -135,7 +138,7 @@ export class OpenAiResponsesClient {
             'content-type': 'application/json',
           },
           body: JSON.stringify({
-            model: request.model ?? 'gpt-5.6-sol',
+            model: request.model ?? this.defaultModel,
             store: false,
             reasoning: { effort: request.reasoningEffort ?? 'low' },
             max_output_tokens: request.maxOutputTokens ?? 8_000,

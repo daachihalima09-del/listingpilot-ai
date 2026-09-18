@@ -110,6 +110,10 @@ export async function completeShopifyOAuthCallback(
       shopDomain: query.shop,
       code: query.code,
     });
+    const grantedScopes = new Set(token.grantedScopes);
+    if (config.scopes.some((scope) => !grantedScopes.has(scope))) {
+      throw new ShopifyCallbackError('connection_failed', 'missing_scopes');
+    }
     const shop = await dependencies.verifyShop({
       shopDomain: query.shop,
       accessToken: token.accessToken,

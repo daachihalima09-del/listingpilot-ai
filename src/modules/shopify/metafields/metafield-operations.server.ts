@@ -13,6 +13,7 @@ import {
   publishShopifyMetafields,
   saveShopifyMetafieldConfiguration,
 } from './metafield-service';
+import type { RemoteMetafieldDefinition } from './graphql-metafield-repository';
 
 async function context(actorUserId: string, projectId: string) {
   return prismaShopifyMetafieldRepository.resolveProject(actorUserId, projectId);
@@ -22,9 +23,19 @@ export async function getUserShopifyMetafields(
   actorUserId: string,
   projectId: string,
 ) {
+  const project = await context(actorUserId, projectId);
+  let definitions: RemoteMetafieldDefinition[] = [];
+  if (project?.shopifyStoreId && shopifyGraphqlMetafieldRepository.listDefinitions) {
+    try {
+      definitions = await shopifyGraphqlMetafieldRepository.listDefinitions(project.workspaceId);
+    } catch {
+      // Local recommendations remain available when Shopify discovery is unavailable.
+    }
+  }
   return getShopifyMetafieldConfiguration(
     prismaShopifyMetafieldRepository,
-    await context(actorUserId, projectId),
+    project,
+    definitions,
   );
 }
 

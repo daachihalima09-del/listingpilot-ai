@@ -404,8 +404,7 @@ export function validateListingDraftOutput(
   }
   for (const [index, specification] of output.specifications.entries()) {
     const citedValues = specification.factIds.map((id) => facts.get(id)?.value ?? '').filter(Boolean);
-    const specificationValue = normalized(specification.value);
-    if (!citedValues.length || citedValues.some((value) => !specificationValue.includes(normalized(value)))) {
+    if (!citedValues.length || citedValues.some((value) => !factValueIsRepresented(specification.value, value))) {
       throw new ListingDraftError('DRAFT_INVENTED_VALUE', 'Specification values must match selected facts exactly.', 422);
     }
     assertGroundedTokens(specification.value, specification.factIds, facts, `specifications.${index}`);

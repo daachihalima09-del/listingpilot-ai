@@ -4,18 +4,11 @@ import {
   ShopifyAdminApiError,
 } from './errors.ts';
 
-export type ShopifyAdminMethod =
-  | 'GET'
-  | 'HEAD'
-  | 'POST'
-  | 'PUT'
-  | 'PATCH'
-  | 'DELETE';
+export type ShopifyAdminMethod = 'POST';
 
 export interface ShopifyAdminRequest {
   method?: ShopifyAdminMethod;
   path: string;
-  query?: Record<string, string | number | boolean | undefined>;
   body?: unknown;
   retrySafe?: boolean;
 }
@@ -24,7 +17,6 @@ export interface ShopifyAdminResponse {
   data: unknown;
   status: number;
   requestId: string | null;
-  apiCallLimit: string | null;
 }
 
 export interface ShopifyAdminApiRequester {
@@ -43,13 +35,7 @@ interface ShopifyAdminClientOptions {
 }
 
 function assertSafePath(path: string): void {
-  if (
-    !path.startsWith('/')
-    || path.startsWith('//')
-    || path.includes('?')
-    || path.includes('#')
-    || path.split('/').includes('..')
-  ) {
+  if (path !== '/graphql.json') {
     throw new ShopifyAdminApiError({
       code: 'SHOPIFY_ADMIN_INVALID_REQUEST',
       message: 'The Shopify API request path is invalid.',
@@ -57,8 +43,8 @@ function assertSafePath(path: string): void {
   }
 }
 
-function isRetrySafe(method: ShopifyAdminMethod, explicitlySafe = false): boolean {
-  return explicitlySafe || method === 'GET' || method === 'HEAD';
+function isRetrySafe(explicitlySafe = false): boolean {
+  return explicitlySafe;
 }
 
 function retryDelay(attempt: number, random: () => number): number {
@@ -102,14 +88,10 @@ export function createShopifyAdminApiClient(
   return {
     async request(input) {
       assertSafePath(input.path);
-      const method = input.method ?? 'GET';
+      const method = input.method ?? 'POST';
       const url = new URL(
         `https://${shopDomain}/admin/api/${options.apiVersion}${input.path}`,
       );
-      for (const [key, value] of Object.entries(input.query ?? {})) {
-        if (value !== undefined) url.searchParams.set(key, String(value));
-      }
-
       for (let attempt = 0; ; attempt += 1) {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -134,15 +116,12 @@ export function createShopifyAdminApiClient(
               status: response.status,
               requestId: response.headers.get('x-request-id')
                 ?? response.headers.get('x-shopify-request-id'),
-              apiCallLimit: response.headers.get(
-                'x-shopify-shop-api-call-limit',
-              ),
             };
           }
 
           const normalized = normalizeShopifyResponseError(response);
           if (
-            !isRetrySafe(method, input.retrySafe)
+            !isRetrySafe(input.retrySafe)
             || !normalized.retryable
             || attempt >= maximumRetries
           ) {
@@ -163,7 +142,7 @@ export function createShopifyAdminApiClient(
             retryable: true,
             cause: error,
           });
-          if (!isRetrySafe(method, input.retrySafe) || attempt >= maximumRetries) {
+          if (!isRetrySafe(input.retrySafe) || attempt >= maximumRetries) {
             throw normalized;
           }
           await sleep(retryDelay(attempt, random));

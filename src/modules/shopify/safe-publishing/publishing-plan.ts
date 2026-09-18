@@ -163,7 +163,7 @@ function groupFor(field: ShopifyReviewField): PublishingChangeGroup {
   if (field.resourceType === 'VARIANT') return ['price', 'compareAtPrice'].some((name) => field.fieldPath.endsWith(`.${name}`)) ? 'PRICING' : 'VARIANTS';
   if (field.resourceType === 'MEDIA') return 'IMAGES';
   if (field.resourceType === 'METAFIELD') return 'METAFIELDS';
-  if (field.fieldPath.startsWith('product.seo.')) return 'SEO';
+  if (field.fieldPath.startsWith('product.seo.') || field.fieldPath === 'product.handle') return 'SEO';
   if (field.fieldPath === 'product.tags') return 'TAGS';
   if (field.fieldPath === 'product.status') return 'STATUS';
   if (['product.vendor', 'product.productType'].includes(field.fieldPath)) return 'CATALOG';

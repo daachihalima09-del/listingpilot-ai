@@ -8,6 +8,7 @@ import {
 } from '@/lib/server/json-request';
 import { ShopifyImageError } from './image-errors';
 import { SHOPIFY_IMAGE_LIMITS } from './image-limits';
+import { AiProtectionError } from '@/modules/ai-usage/domain';
 
 export function readShopifyImageJson(request: Request) {
   return readBoundedJsonRequest(request, 64 * 1024);
@@ -49,6 +50,12 @@ export async function readImageUpload(request: Request) {
 }
 
 export function shopifyImageErrorResponse(error: unknown) {
+  if (error instanceof AiProtectionError) {
+    return NextResponse.json({ error: { code: error.code, message: error.message } }, {
+      status: error.statusCode,
+      headers: error.retryAfterSeconds ? { 'retry-after': String(error.retryAfterSeconds) } : undefined,
+    });
+  }
   if (error instanceof ZodError) {
     return NextResponse.json({
       error: {

@@ -16,7 +16,6 @@ function response(data: unknown) {
     data,
     status: 200,
     requestId: null,
-    apiCallLimit: null,
   };
 }
 

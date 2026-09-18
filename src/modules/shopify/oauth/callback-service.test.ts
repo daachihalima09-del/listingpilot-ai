@@ -130,6 +130,32 @@ test('failed reconnect verification preserves the existing token and audits safe
   ]);
 });
 
+test('rejects a token that is missing a requested scope before shop verification', async () => {
+  const context = dependencies();
+  context.value.exchangeCode = async () => {
+    context.events.push('code-exchanged');
+    return { accessToken: 'plaintext-token', grantedScopes: [] };
+  };
+  await assert.rejects(
+    completeShopifyOAuthCallback(context.value, config, {
+      requestUrl: callbackUrl(),
+      cookieState: state,
+      actorUserId: 'user-1',
+      now,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ShopifyCallbackError);
+      assert.equal(error.safeCategory, 'missing_scopes');
+      return true;
+    },
+  );
+  assert.deepEqual(context.events, [
+    'state-consumed',
+    'code-exchanged',
+    'failure-audited',
+  ]);
+});
+
 test('builds only server-controlled success and error redirects', () => {
   assert.equal(
     shopifyCallbackSuccessUrl(config.appUrl).toString(),

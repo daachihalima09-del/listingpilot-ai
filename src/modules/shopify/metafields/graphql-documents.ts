@@ -23,6 +23,14 @@ export const METAFIELD_DEFINITION_QUERY = `#graphql
   }
 `;
 
+export const METAFIELD_DEFINITIONS_QUERY = `#graphql
+  query ListingPilotMetafieldDefinitions {
+    metafieldDefinitions(first: 250, ownerType: PRODUCT) {
+      nodes { id name namespace key ownerType type { name } }
+    }
+  }
+`;
+
 export const METAFIELD_DEFINITION_CREATE_MUTATION = `#graphql
   mutation ListingPilotMetafieldDefinitionCreate(
     $definition: MetafieldDefinitionInput!
@@ -88,4 +96,3 @@ export const METAFIELDS_SET_MUTATION = `#graphql
     }
   }
 `;
-

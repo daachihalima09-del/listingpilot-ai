@@ -13,6 +13,7 @@ import {
   deterministicJson,
   normalizeMetafieldValue,
 } from './metafield-validation.ts';
+import { nativeShopifyLabels, normalizeFactLabel, verifiedRecommendationValues } from './metafield-recommendations.ts';
 
 const placeholders = new Set([
   '',
@@ -26,6 +27,7 @@ const placeholders = new Set([
 
 export interface MetafieldMappingProject {
   projectId: string;
+  productType?: string | null;
   analysisData: unknown;
   generatedListing: unknown;
   seoData: unknown;
@@ -83,8 +85,8 @@ export function mapProjectToMetafields(
   );
   const seo = projectSeoDataSchema.safeParse(project.seoData);
   const truthRows = analysis.success ? analysis.data.truthRows : [];
-  const availableRows = truthRows.filter(({ status, value }) => (
-    status !== 'Missing' && cleanText(value)
+  const availableRows = truthRows.filter(({ status, value, field }) => (
+    status === 'Verified' && cleanText(value) && !nativeShopifyLabels.has(normalizeFactLabel(field))
   ));
   const row = (field: string) => cleanText(availableRows.find(
     (candidate) => (
@@ -161,6 +163,10 @@ export function mapProjectToMetafields(
       project.lastPublishedAt?.toISOString(),
     'listingpilot_system.generator_version': 'listingpilot-ai/1',
   };
+  for (const [catalogId, value] of verifiedRecommendationValues(
+    project.productType,
+    project.analysisData,
+  ).values) values[catalogId] = value;
 
   return SHOPIFY_METAFIELD_CATALOG.flatMap((definition) => {
     const raw = values[definition.catalogId];

@@ -21,6 +21,8 @@ const input = {
   descriptionHtml: '<p>Weather-ready shell.</p>',
   vendor: 'ListingPilot',
   productType: 'Jackets',
+  handle: 'alpine-jacket-reviewed',
+  seo: { title: 'Alpine Jacket', description: 'Reviewed alpine jacket SEO description.' },
   tags: ['outdoor'],
   status: 'DRAFT',
 };

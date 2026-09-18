@@ -6,6 +6,13 @@ export type ShopifyMetafieldViewState =
   | 'NO_MAPPED_DATA'
   | 'READY';
 
+export function canSaveLocalMetafieldConfiguration(input: {
+  canManage: boolean;
+  hasMappedData: boolean;
+}): boolean {
+  return input.canManage && input.hasMappedData;
+}
+
 export function getShopifyMetafieldViewState(input: {
   configured: boolean;
   connected: boolean;
@@ -20,4 +27,3 @@ export function getShopifyMetafieldViewState(input: {
   if (!input.hasMappedData) return 'NO_MAPPED_DATA';
   return 'READY';
 }
-

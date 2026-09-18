@@ -6,8 +6,8 @@ import { auth } from '@/modules/auth/server/auth';
 import { getSafeCallbackPath } from '@/modules/auth/server/redirects';
 
 export const metadata: Metadata = {
-  title: 'Create account | ListingPilot AI',
-  description: 'Create your ListingPilot AI merchant workspace.',
+  title: 'Activate early access | ListingPilot AI',
+  description: 'Activate an approved ListingPilot AI early-access merchant workspace.',
 };
 
 interface SignUpPageProps {
@@ -32,8 +32,8 @@ export default async function SignUpPage({ searchParams }: SignUpPageProps) {
   return (
     <AuthPageShell
       eyebrow="Start your workspace"
-      title="Create your merchant account"
-      description="Your organization and default truth workspace will be ready immediately."
+      title="Activate your merchant account"
+      description="Early access is limited to approved merchants. Your organization and default workspace will be created after activation."
     >
       <SignUpForm callbackUrl={callbackUrl} />
     </AuthPageShell>

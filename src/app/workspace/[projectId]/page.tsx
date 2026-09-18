@@ -189,6 +189,7 @@ export default async function ProjectWorkspacePage({
               )
             : null,
         }}
+        shopifyStoreName={connected ? connection.shopName ?? connection.shopDomain : null}
         shopifyCoordinator={{
           configured,
           connected,

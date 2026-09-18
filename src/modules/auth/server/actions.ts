@@ -15,6 +15,7 @@ import {
 } from '@/modules/auth/server/credentials-auth';
 import { getSafeCallbackPath } from '@/modules/auth/server/redirects';
 import { registerMerchant } from '@/modules/auth/server/registration';
+import { canRegisterForEarlyAccess } from '@/modules/auth/services/early-access';
 import {
   createDatabaseSession,
   setDatabaseSessionCookie,
@@ -42,6 +43,12 @@ export async function signUpAction(
 
   if (!result.success) {
     return { fieldErrors: result.error.flatten().fieldErrors };
+  }
+
+  if (!canRegisterForEarlyAccess(result.data.email, process.env)) {
+    return {
+      formError: 'Registration is currently limited to approved early-access merchants. Contact the ListingPilot team for access.',
+    };
   }
 
   let userId: string;

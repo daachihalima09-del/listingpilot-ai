@@ -78,6 +78,17 @@ export const SHOPIFY_METAFIELD_CATALOG = [
   define('SPECIFICATIONS', specs, 'control', 'Control', 'Verified control methods.', 'list.single_line_text_field', 'analysis.truthRows.Control'),
   define('SPECIFICATIONS', specs, 'finish', 'Finish', 'Verified product finish.', 'single_line_text_field', 'analysis.truthRows.Finish'),
   define('SPECIFICATIONS', specs, 'version', 'Version', 'Verified product version.', 'single_line_text_field', 'analysis.truthRows.Version'),
+  ...[
+    ['screen_size', 'Screen size'], ['display_type', 'Display type'], ['resolution', 'Resolution'],
+    ['refresh_rate', 'Refresh rate'], ['hdr_support', 'HDR support'], ['smart_platform', 'Smart platform'],
+    ['connectivity', 'Connectivity'], ['motor_power', 'Motor power'], ['heat_settings', 'Heat settings'],
+    ['speed_settings', 'Speed settings'], ['attachments', 'Attachments'], ['ionic_technology', 'Ionic technology'],
+    ['cable_length', 'Cable length'], ['weight', 'Weight'], ['battery_runtime', 'Battery runtime'],
+    ['suction_power', 'Suction power'], ['bin_capacity', 'Bin capacity'], ['filtration', 'Filtration'],
+    ['accessories', 'Accessories'], ['floor_compatibility', 'Floor compatibility'], ['coverage_area', 'Coverage area'],
+    ['cadr', 'CADR'], ['noise_level', 'Noise level'], ['power_consumption', 'Power consumption'],
+    ['dimensions', 'Dimensions'], ['filter_life', 'Filter life'],
+  ].map(([key, label]) => define('SPECIFICATIONS', specs, key, label, `Verified ${label.toLocaleLowerCase('en-US')}.`, 'single_line_text_field', `analysis.truthRows.${label}`)),
   define('PRODUCT_TRUTH', truth, 'verification_status', 'Verification status', 'ListingPilot verification summary.', 'single_line_text_field', 'analysis.truthRows.status'),
   define('PRODUCT_TRUTH', truth, 'confidence_score', 'Confidence score', 'Normalized confidence from 0 to 100.', 'number_decimal', 'analysis.activeProduct.catalogHealth.score'),
   define('PRODUCT_TRUTH', truth, 'source_count', 'Source count', 'Number of reviewed sources.', 'number_integer', 'analysis.activeProduct.sources.length'),
@@ -109,4 +120,3 @@ export const SHOPIFY_METAFIELD_CATALOG_BY_ID = new Map(
 export function getMetafieldCatalogDefinition(catalogId: string) {
   return SHOPIFY_METAFIELD_CATALOG_BY_ID.get(catalogId);
 }
-

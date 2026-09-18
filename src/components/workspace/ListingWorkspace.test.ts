@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const source = await readFile(new URL('./ListingWorkspace.tsx', import.meta.url), 'utf8');
+const shopifyReviewSource = await readFile(new URL('../../modules/shopify/components/ShopifyProductReview.tsx', import.meta.url), 'utf8');
 const draftRouteErrors = await readFile(new URL('../../modules/listing-draft/persistence/route-helpers.server.ts', import.meta.url), 'utf8');
 
 test('Overview is the default and the six employee workflow tabs are accessible', () => {
@@ -22,10 +23,39 @@ test('merchant work is progressively disclosed into the correct primary areas', 
   assert.match(source, /<ProductTruthTable/);
   assert.match(source, /<AIDetective/);
   assert.match(source, /workspaceTab === 'SHOPIFY'/);
-  assert.match(source, /Ready for Shopify/);
-  assert.match(source, /<ShopifyListingPreview/);
+  assert.match(shopifyReviewSource, /Ready for Shopify/);
+  assert.match(source, /<ShopifyProductReview/);
   assert.match(source, /workspaceTab === 'ADVANCED'/);
   assert.match(source, /<details/);
+});
+
+test('Shopify is a read-only complete Product review that routes edits to existing tabs', () => {
+  const review = shopifyReviewSource;
+  for (const section of ['Product', 'Media', 'Product Organization', 'Pricing', 'Inventory / Shipping', 'Variants', 'Metafields', 'Search Engine Listing', 'Shopify Destination', 'Ready for Shopify']) assert.match(review, new RegExp(section.replace('/', '\\/')));
+  assert.match(review, /listing\.title/);
+  assert.match(review, /listing\.descriptionHtml/);
+  assert.match(review, /images\?\.images/);
+  assert.match(review, /variants\.variants/);
+  assert.match(review, /metafields\?\.recommendations/);
+  assert.match(review, /draft\.seo\.handle/);
+  assert.match(review, /draft\.catalog\.productType\.value/);
+  assert.match(review, /draft\.catalog\.vendor\.value/);
+  assert.match(review, /draft\.catalog\.collections/);
+  assert.match(review, /draft\.catalog\.tags/);
+  for (const field of ['price', 'compareAtPrice', 'sku', 'barcode']) assert.match(review, new RegExp(`firstVariant\\?\\.${field}`));
+  assert.match(review, /value\?\.trim\(\) \|\| 'Not set'/);
+  assert.match(review, /status !== 'NEEDS_REVIEW'/);
+  assert.match(review, /Managed in Shopify/);
+  assert.match(review, /Not changed by ListingPilot/);
+  assert.match(review, /Destination will be selected during final review/);
+  assert.match(review, /Update Existing Product/);
+  assert.match(review, /Review &amp; Publish to Shopify/);
+  assert.match(review, /Nothing is published from this preview/);
+  assert.match(review, /xl:grid-cols/);
+  assert.doesNotMatch(review, /metafieldsSet|productCreate|fetch\(|OpenAI|fingerprint|plan version/iu);
+  assert.doesNotMatch(review, /analysis hash|generator version|schema version|project reference|namespace mismatch/iu);
+  assert.match(source, /onEdit=\{selectWorkspaceTab\}/);
+  assert.match(source, /MetafieldTechnicalDetails/);
 });
 
 test('top-level tabs own listing, evidence, Shopify preview and advanced controls without nested review navigation', async () => {
@@ -102,4 +132,15 @@ test('generation is bounded, deduplicated, and saves exactly once before using a
 test('primary generation errors use merchant language without validator internals', () => {
   assert.match(draftRouteErrors, /Listing quality check failed/);
   assert.doesNotMatch(draftRouteErrors, /visibly match every cited selected fact/);
+});
+
+test('editing a Product source invalidates old analysis and listing authority before autosave', () => {
+  assert.match(source, /const invalidateDerivedProductState = \(\) =>/u);
+  assert.match(source, /setAnalysisStarted\(false\)/u);
+  assert.match(source, /setAnalysisContext\(null\)/u);
+  assert.match(source, /setListingDraft\(null\)/u);
+  assert.match(source, /setGenerationEligibility\(null\)/u);
+  assert.match(source, /normalizedValue !== supplierUrl\) invalidateDerivedProductState\(\)/u);
+  assert.match(source, /normalizedValue !== productUrl\) invalidateDerivedProductState\(\)/u);
+  assert.match(source, /value !== specText\) invalidateDerivedProductState\(\)/u);
 });

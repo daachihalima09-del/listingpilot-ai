@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/modules/auth/server/context';
 import { readBoundedJsonRequest } from '@/lib/server/json-request';
 import { importDetectedProductImages, listProductSourceImages, rediscoverProductSourceImages } from '@/modules/product-images/product-image-service.server';
 import { shopifyImageErrorResponse, unauthenticatedImageResponse } from '@/modules/shopify/images/image-route-helpers.server';
+import { enforceRateLimit } from '@/modules/ai-usage/composition.server';
 
 type Context = { params: Promise<{ projectId: string; productId: string }> };
 
@@ -22,6 +23,7 @@ export async function POST(request: Request, context: Context) {
   const user = await getCurrentUser();
   if (!user) return unauthenticatedImageResponse();
   try {
+    await enforceRateLimit({ action: 'REMOTE_IMAGE_IMPORT', subject: { userId: user.id } });
     const { projectId, productId } = await context.params;
     const body = await readBoundedJsonRequest(request, 16 * 1024);
     const value = body && typeof body === 'object' && !Array.isArray(body) ? body : {};

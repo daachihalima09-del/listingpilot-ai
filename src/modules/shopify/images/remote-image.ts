@@ -1,5 +1,7 @@
 import { lookup } from 'node:dns/promises';
-import { isIP } from 'node:net';
+import { request as httpsRequest } from 'node:https';
+import { isIP, type LookupFunction } from 'node:net';
+import { Readable } from 'node:stream';
 import { SHOPIFY_IMAGE_LIMITS } from './image-limits.ts';
 import {
   imageMimeTypeSchema,
@@ -122,7 +124,7 @@ export function parseSafeRemoteImageUrl(raw: string): URL {
 async function assertSafeResolution(
   url: URL,
   resolveHost: (hostname: string) => Promise<string[]>,
-) {
+): Promise<string[]> {
   let addresses: string[];
   try {
     addresses = await resolveHost(url.hostname);
@@ -138,7 +140,63 @@ async function assertSafeResolution(
       'This remote image host is not allowed.',
     );
   }
+  return addresses;
 }
+
+function pinnedLookup(addresses: readonly string[]): LookupFunction {
+  const resolved = addresses.map((address) => ({
+    address,
+    family: isIP(address) as 4 | 6,
+  }));
+  return (_hostname, options, callback) => {
+    const matching = options.family
+      ? resolved.filter(({ family }) => family === options.family)
+      : resolved;
+    if (!matching.length) {
+      const error = new Error('No validated address matches the requested address family.') as NodeJS.ErrnoException;
+      error.code = 'ENOTFOUND';
+      callback(error, '', 0);
+      return;
+    }
+    if (options.all) {
+      callback(null, matching);
+      return;
+    }
+    callback(null, matching[0].address, matching[0].family);
+  };
+}
+
+type PinnedImageRequester = (
+  url: URL,
+  addresses: readonly string[],
+  signal: AbortSignal,
+) => Promise<Response>;
+
+const requestPinnedImage: PinnedImageRequester = (url, addresses, signal) => (
+  new Promise<Response>((resolve, reject) => {
+    const request = httpsRequest(url, {
+      method: 'GET',
+      headers: {
+        Accept: 'image/jpeg,image/png,image/webp',
+        'Accept-Encoding': 'identity',
+        'User-Agent': 'ListingPilot/1.0 product-image-importer',
+      },
+      lookup: pinnedLookup(addresses),
+      signal,
+    }, (incoming) => {
+      const headers = new Headers();
+      for (let index = 0; index < incoming.rawHeaders.length; index += 2) {
+        headers.append(incoming.rawHeaders[index], incoming.rawHeaders[index + 1]);
+      }
+      resolve(new Response(
+        Readable.toWeb(incoming) as ReadableStream<Uint8Array>,
+        { status: incoming.statusCode ?? 502, headers },
+      ));
+    });
+    request.once('error', reject);
+    request.end();
+  })
+);
 
 async function readBoundedBody(response: Response): Promise<Uint8Array> {
   const declaredLength = Number(response.headers.get('content-length'));
@@ -186,12 +244,12 @@ export async function downloadRemoteImage(
   rawUrl: string,
   options: {
     fetcher?: typeof fetch;
+    requester?: PinnedImageRequester;
     resolveHost?: (hostname: string) => Promise<string[]>;
     timeoutMs?: number;
     maximumRedirects?: number;
   } = {},
 ): Promise<ValidatedRemoteImage> {
-  const fetcher = options.fetcher ?? fetch;
   const resolveHost = options.resolveHost ?? (async (hostname) => (
     (await lookup(hostname, { all: true, verbatim: true }))
       .map(({ address }) => address)
@@ -209,19 +267,21 @@ export async function downloadRemoteImage(
         'The remote image redirected too many times.',
       );
     }
-    await assertSafeResolution(url, resolveHost);
+    const addresses = await assertSafeResolution(url, resolveHost);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let response: Response;
     try {
-      response = await fetcher(url, {
-        method: 'GET',
-        redirect: 'manual',
-        credentials: 'omit',
-        referrerPolicy: 'no-referrer',
-        headers: { Accept: 'image/jpeg,image/png,image/webp' },
-        signal: controller.signal,
-      });
+      response = options.fetcher
+        ? await options.fetcher(url, {
+            method: 'GET',
+            redirect: 'manual',
+            credentials: 'omit',
+            referrerPolicy: 'no-referrer',
+            headers: { Accept: 'image/jpeg,image/png,image/webp' },
+            signal: controller.signal,
+          })
+        : await (options.requester ?? requestPinnedImage)(url, addresses, controller.signal);
     } catch (error) {
       throw new RemoteImageError(
         error instanceof Error && error.name === 'AbortError'
@@ -236,6 +296,7 @@ export async function downloadRemoteImage(
     }
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get('location');
+      await response.body?.cancel();
       if (!location) {
         throw new RemoteImageError(
           'UNAVAILABLE',
@@ -246,6 +307,7 @@ export async function downloadRemoteImage(
       continue;
     }
     if (!response.ok) {
+      await response.body?.cancel();
       throw new RemoteImageError(
         'UNAVAILABLE',
         'The remote image could not be downloaded.',

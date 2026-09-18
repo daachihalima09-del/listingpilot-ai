@@ -49,7 +49,6 @@ test('uses one lightweight paginated query and one batch linkage lookup', async 
           },
           status: 200,
           requestId: null,
-          apiCallLimit: null,
         };
       },
     },
@@ -77,7 +76,6 @@ test('maps GraphQL throttling without exposing raw errors', async () => {
             data: { errors: [{ message: 'raw secret', extensions: { code: 'THROTTLED' } }] },
             status: 200,
             requestId: null,
-            apiCallLimit: null,
           };
         },
       },
@@ -90,4 +88,3 @@ test('maps GraphQL throttling without exposing raw errors', async () => {
     ),
   );
 });
-

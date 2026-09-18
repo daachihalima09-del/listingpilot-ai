@@ -1,13 +1,10 @@
 import { immutableCopy } from '../../intelligence/domain/immutability.ts';
+import { factValueIsRepresented, unsupportedFactualTokens } from '../../generation-instructions/domain/fact-fidelity.ts';
 import { validateDraftCraftCompliance } from '../../listing-craft/index.ts';
 import type { DraftRegenerationSection, DraftTextField, ListingDraft } from '../domain/contracts.ts';
 import type { PartialGenerationOutput, PartialGenerationProvider } from '../domain/regeneration-contracts.ts';
 import { ListingDraftError } from '../domain/errors.ts';
 import { listingDraftSchema } from '../validation/draft-schema.ts';
-
-function normalized(value: string): string {
-  return value.trim().toLocaleLowerCase('en-US').replace(/[^a-z0-9]+/gu, ' ');
-}
 
 function validateText(field: DraftTextField, draft: ListingDraft): void {
   const facts = new Map(draft.reviewWorkspace?.facts.map((fact) => [fact.factId, fact]) ?? []);
@@ -16,9 +13,12 @@ function validateText(field: DraftTextField, draft: ListingDraft): void {
   }
   for (const factId of field.factIds) {
     const fact = facts.get(factId);
-    if (!fact || !normalized(field.value).includes(normalized(fact.value))) {
+    if (!fact || !factValueIsRepresented(field.value, fact.value)) {
       throw new ListingDraftError('DRAFT_FORBIDDEN_FACT', 'Regenerated content used an unapproved or unrelated fact.', 422);
     }
+  }
+  if (unsupportedFactualTokens(field.value, field.factIds.map((factId) => facts.get(factId)?.value ?? '')).length) {
+    throw new ListingDraftError('DRAFT_INVENTED_VALUE', 'Regenerated content contains an unsupported factual value.', 422);
   }
 }
 
@@ -117,10 +117,9 @@ export class ListingDraftRegenerationEngine {
     if (result.output.section === 'DESCRIPTION') {
       const exactFacts = new Map(draft.reviewWorkspace.facts.map((fact) => [fact.factId, fact.value]));
       for (const specification of result.output.specifications) {
-        const specificationValue = normalized(specification.value);
         if (!specification.factIds.length || specification.factIds.some((factId) => {
-          const factValue = normalized(exactFacts.get(factId) ?? '');
-          return !factValue || !specificationValue.includes(factValue);
+          const factValue = exactFacts.get(factId) ?? '';
+          return !factValue || !factValueIsRepresented(specification.value, factValue);
         })) {
           throw new ListingDraftError('DRAFT_INVENTED_VALUE', 'Regenerated specifications must exactly match verified facts.', 422);
         }

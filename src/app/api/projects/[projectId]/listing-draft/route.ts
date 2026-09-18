@@ -6,6 +6,7 @@ import { generateProjectListingDraft, getProjectListingGenerationEligibility, re
 import { generateListingDraftRequestSchema, regenerateListingDraftRequestSchema, saveListingDraftRequestSchema } from '@/modules/listing-draft/persistence/request-schema';
 import { listingDraftRouteErrorResponse } from '@/modules/listing-draft/persistence/route-helpers.server';
 import { createListingGenerationTrace } from '@/modules/listing-draft/persistence/generation-trace.server';
+import { enforceRateLimit } from '@/modules/ai-usage/composition.server';
 
 const MAX_DRAFT_BODY_BYTES = 768 * 1024;
 
@@ -44,12 +45,18 @@ export async function POST(request: Request, context: ListingDraftRouteContext):
     const activeProductId = productId ?? projectId;
     trace = createListingGenerationTrace({ requestId: crypto.randomUUID(), projectId: activeProductId });
     const input = generateListingDraftRequestSchema.parse(await readBoundedJsonRequest(request, MAX_DRAFT_BODY_BYTES));
+    await enforceRateLimit({
+      action: 'LISTING_GENERATION',
+      subject: { workspaceId: input.workspaceId },
+      workspaceId: input.workspaceId,
+    });
     const result = await generateProjectListingDraft({
       actorUserId: user.id,
       workspaceId: input.workspaceId,
       projectId: activeProductId,
       containerProjectId: productId ? projectId : undefined,
       version: input.version,
+      operationRequestId: input.operationRequestId,
       signal: request.signal,
       trace,
     });
@@ -95,6 +102,11 @@ export async function PUT(request: Request, context: ListingDraftRouteContext): 
   try {
     const { projectId, productId } = await context.params;
     const input = regenerateListingDraftRequestSchema.parse(await readBoundedJsonRequest(request, MAX_DRAFT_BODY_BYTES));
+    await enforceRateLimit({
+      action: 'SECTION_REGENERATION',
+      subject: { workspaceId: input.workspaceId },
+      workspaceId: input.workspaceId,
+    });
     const result = await regenerateProjectListingDraft({
       actorUserId: user.id,
       projectId: productId ?? projectId,

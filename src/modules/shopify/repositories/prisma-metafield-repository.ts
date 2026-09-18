@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import {
   SHOPIFY_METAFIELD_CATALOG_VERSION,
+  getMetafieldCatalogDefinition,
   type ShopifyMetafieldType,
 } from '../metafields/metafield-catalog';
 import type {
@@ -13,6 +14,8 @@ import type {
 import { opaqueProjectReference } from '../metafields/metafield-mapping';
 import {
   isShopifyMetafieldType,
+  shopifyMetafieldKeySchema,
+  shopifyMetafieldNamespaceSchema,
   validateCatalogIdentity,
 } from '../metafields/metafield-validation';
 
@@ -46,12 +49,15 @@ function configuration(record: {
     schemaVersion: record.schemaVersion,
     version: record.version,
     fields: record.metafields.map((field) => {
-      validateCatalogIdentity({
+      const approved = validateCatalogIdentity({
         catalogId: field.catalogKey,
-        namespace: field.namespace,
-        key: field.key,
+        namespace: getMetafieldCatalogDefinition(field.catalogKey)?.namespace ?? field.namespace,
+        key: getMetafieldCatalogDefinition(field.catalogKey)?.key ?? field.key,
         type: field.type,
       });
+      shopifyMetafieldNamespaceSchema.parse(field.namespace);
+      shopifyMetafieldKeySchema.parse(field.key);
+      if (approved.type !== field.type) throw new Error('Stored metafield mapping has an incompatible type.');
       if (!isShopifyMetafieldType(field.type)) {
         throw new Error('Unsupported stored metafield type.');
       }
@@ -88,6 +94,7 @@ export const prismaShopifyMetafieldRepository: ShopifyMetafieldRepository = {
         id: true,
         workspaceId: true,
         archivedAt: true,
+        productType: true,
         analysisData: true,
         generatedListing: true,
         seoData: true,
@@ -134,6 +141,7 @@ export const prismaShopifyMetafieldRepository: ShopifyMetafieldRepository = {
       shopifyProductId:
         project.shopifyProductPublication?.shopifyProductId ?? null,
       projectData: {
+        productType: project.productType,
         analysisData: project.analysisData,
         generatedListing: project.generatedListing,
         seoData: project.seoData,

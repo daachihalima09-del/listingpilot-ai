@@ -48,6 +48,7 @@ export function comparableSnapshot(snapshot: ShopifyProductSnapshot): Comparable
     warningCodes,
   });
   add('product.title', 'Title', normalizeText(product.title));
+  add('product.handle', 'URL handle', normalizeText(product.handle), true, ['HANDLE_CHANGE']);
   add('product.descriptionHtml', 'Description', stripExternalHtml(product.descriptionHtml));
   add('product.vendor', 'Vendor', normalizeText(product.vendor));
   add('product.productType', 'Product type', normalizeText(product.productType));

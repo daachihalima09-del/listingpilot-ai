@@ -82,8 +82,10 @@ function localComparable(
     const seo = draft.seo && typeof draft.seo === 'object' ? draft.seo as Record<string, unknown> : null;
     const seoTitle = text(seo?.title);
     const seoDescription = text(seo?.description);
+    const handle = text(seo?.handle);
     if (seoTitle !== null) values.get('product.seo.title')!.value = seoTitle;
     if (seoDescription !== null) values.get('product.seo.description')!.value = seoDescription;
+    if (handle !== null) values.get('product.handle')!.value = handle;
   }
   if (project.seoData && typeof project.seoData === 'object') {
     const seo = project.seoData as Record<string, unknown>;

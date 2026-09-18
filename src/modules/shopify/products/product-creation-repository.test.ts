@@ -20,13 +20,16 @@ test('sends one supported GraphQL create-product request through the authenticat
         },
         status: 201,
         requestId: 'request-1',
-        apiCallLimit: '1/40',
       };
     },
   );
   const payload = {
     product: {
       title: 'Product',
+      vendor: 'Dyson',
+      product_type: 'Hair Dryer',
+      handle: 'dyson-hair-dryer',
+      seo: { title: 'Dyson Hair Dryer', description: 'Reviewed SEO description' },
       tags: '',
       status: 'active' as const,
     },
@@ -38,7 +41,10 @@ test('sends one supported GraphQL create-product request through the authenticat
   assert.equal(capturedRequest?.path, '/graphql.json');
   const body = capturedRequest?.body as { query: string; variables: { product: unknown } };
   assert.match(body.query, /productCreate/u);
-  assert.deepEqual(body.variables.product, { title: 'Product', status: 'ACTIVE' });
+  assert.deepEqual(body.variables.product, {
+    title: 'Product', vendor: 'Dyson', productType: 'Hair Dryer', handle: 'dyson-hair-dryer',
+    seo: { title: 'Dyson Hair Dryer', description: 'Reviewed SEO description' }, status: 'ACTIVE',
+  });
   assert.deepEqual(response, {
     product: {
       id: '1',
@@ -51,7 +57,7 @@ test('sends one supported GraphQL create-product request through the authenticat
 
 test('maps GraphQL userErrors to a safe product validation error', async () => {
   const repository = createShopifyProductCreationRepository(async () => ({
-    data: { data: { productCreate: { product: null, userErrors: [{ field: ['title'], message: 'invalid' }] } } }, status: 200, requestId: 'request-1', apiCallLimit: null,
+    data: { data: { productCreate: { product: null, userErrors: [{ field: ['title'], message: 'invalid' }] } } }, status: 200, requestId: 'request-1',
   }));
   await assert.rejects(repository.create('workspace-1', { product: { title: 'Product', tags: '', status: 'draft' } }), /Shopify rejected/u);
 });

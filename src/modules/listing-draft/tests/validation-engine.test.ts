@@ -166,17 +166,29 @@ test('safe unit, inflection and numeric typography variants stay grounded', () =
   assert.equal(factValueIsRepresented('Connects over Wi-Fi', 'Wi-Fi connectivity'), true);
   assert.equal(factValueIsRepresented('Filters the air using HEPA filtration', 'HEPA filtration'), true);
   assert.deepEqual(unsupportedFactualTokens('Monitors NO2 and PM2.5', ['NO\u2082 and PM2.5 monitoring']), []);
-  assert.deepEqual(unsupportedFactualTokens('4 L water tank', ['5 L']), ['4']);
+  assert.deepEqual(unsupportedFactualTokens('4 L water tank', ['5 L']), ['4 L']);
   const realTitle = 'Dyson PH05 Air Purifier Humidifier And Cooling Fan 5L HEPA H13 Filtration Air Multiplier Technology';
   assert.deepEqual(unsupportedFactualTokens(realTitle, ['5 L', 'Dyson', 'PH05', 'Air purifier humidifier and cooling fan', 'HEPA H13 filtration', 'Air Multiplier technology']), []);
-  assert.deepEqual(unsupportedFactualTokens('Dyson PH05 4L', ['Dyson', 'PH05', '5 L']), ['4']);
+  assert.deepEqual(unsupportedFactualTokens('Dyson PH05 4L', ['Dyson', 'PH05', '5 L']), ['4L']);
   assert.equal(factValueIsRepresented('65-inch display', '65 inch'), true);
   assert.equal(factValueIsRepresented('65" display', '65 inch'), true);
   assert.deepEqual(unsupportedFactualTokens('120Hz 1500W 10kg 500ml 0.1 µm', ['120 Hz', '1500 W', '10 kg', '500 ml', '0.1 microns']), []);
-  assert.deepEqual(unsupportedFactualTokens('144Hz 1800W 75-inch', ['120 Hz', '1500 W', '65 inch']), ['144', '1800', '75']);
-  assert.deepEqual(unsupportedFactualTokens('144Hz refresh rate', ['120 Hz refresh rate']), ['144']);
-  assert.deepEqual(unsupportedFactualTokens('4L capacity', ['5 L capacity']), ['4']);
-  assert.deepEqual(unsupportedFactualTokens('75-inch display', ['65 inch display']), ['75']);
+  assert.deepEqual(unsupportedFactualTokens('144Hz 1800W 75-inch', ['120 Hz', '1500 W', '65 inch']), ['144Hz', '1800W', '75-inch']);
+  assert.deepEqual(unsupportedFactualTokens('144Hz refresh rate', ['120 Hz refresh rate']), ['144Hz']);
+  assert.deepEqual(unsupportedFactualTokens('4L capacity', ['5 L capacity']), ['4L']);
+  assert.deepEqual(unsupportedFactualTokens('75-inch display', ['65 inch display']), ['75-inch']);
+  assert.deepEqual(unsupportedFactualTokens('1500 mL tank', ['1.5 L tank']), []);
+  assert.deepEqual(unsupportedFactualTokens('1.5 L tank', ['1500 mL tank']), []);
+  assert.deepEqual(unsupportedFactualTokens('25 mm depth', ['2.5 cm depth']), []);
+  assert.deepEqual(unsupportedFactualTokens('1000 GB storage', ['1 TB storage']), []);
+  assert.deepEqual(unsupportedFactualTokens('1 hour runtime', ['60 minutes runtime']), []);
+  assert.deepEqual(unsupportedFactualTokens('1400 mL tank', ['1.5 L tank']), ['1400 mL']);
+  assert.deepEqual(unsupportedFactualTokens('1200 GB storage', ['1 TB storage']), ['1200 GB']);
+  assert.deepEqual(unsupportedFactualTokens('5 kg capacity', ['5 L capacity']), ['5 kg']);
+  assert.deepEqual(unsupportedFactualTokens('45 m² coverage', ['45 square metres coverage']), []);
+  assert.deepEqual(unsupportedFactualTokens('45 ft² coverage', ['45 m² coverage']), ['45 ft²']);
+  assert.deepEqual(unsupportedFactualTokens('OLED display', ['LED display']), ['OLED']);
+  assert.deepEqual(unsupportedFactualTokens('4K television', ['4K TV']), []);
 });
 
 test('natural grammatical claim expressions remain grounded while unsupported semantic claims fail', () => {
@@ -203,6 +215,26 @@ test('wrong model, wrong numeric values and unsupported numeric claims remain re
       error instanceof ListingDraftError && error.code === 'DRAFT_INVENTED_VALUE'
     ));
   }
+});
+
+test('structured facts accept exact unit conversions while unsupported technologies still fail end to end', () => {
+  const instructions = structuredClone(draftInstructions());
+  const template = instructions.allowedFacts.find(({ fieldId }) => fieldId === 'brand')!;
+  const capacity = { ...template, factId: 'capacity-conversion', fieldId: 'capacity', value: '1.5 L', visibilityRole: 'AVAILABLE_VERIFIED' as const, requiredPlacements: [] };
+  const panel = { ...template, factId: 'panel-technology', fieldId: 'panel', value: 'LED display', visibilityRole: 'AVAILABLE_VERIFIED' as const, requiredPlacements: [] };
+  (instructions.allowedFacts as unknown as Array<typeof capacity | typeof panel>).push(capacity, panel);
+  const converted = structuredClone(validProviderOutput(instructions));
+  converted.specifications.push({ label: 'Capacity', value: '1500 mL', factIds: [capacity.factId] });
+  assert.doesNotThrow(() => validateListingDraftOutput(converted, instructions, { enforceListingStyle: false }));
+
+  const inventedTechnology = structuredClone(converted);
+  inventedTechnology.features[0] = { value: 'OLED display', factIds: [panel.factId] };
+  assert.throws(() => validateListingDraftOutput(inventedTechnology, instructions, { enforceListingStyle: false }), (error: unknown) => (
+    error instanceof ListingDraftError
+      && error.code === 'DRAFT_INVENTED_VALUE'
+      && Array.isArray(error.metadata.unsupportedTokens)
+      && error.metadata.unsupportedTokens.includes('OLED')
+  ));
 });
 
 test('conflicted or otherwise unapproved facts cannot be cited', () => {

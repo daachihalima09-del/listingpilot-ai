@@ -76,6 +76,14 @@ test('merchant analysis workflow does not expose demo product controls', async (
   assert.doesNotMatch(input, /Load Demo Product|onLoadDemoProduct/u);
 });
 
+test('authenticated home never mounts the legacy demo workspace', async () => {
+  const home = await readFile(new URL('../../app/page.tsx', import.meta.url), 'utf8');
+
+  assert.doesNotMatch(home, /ListingWorkspace|demoProduct/u);
+  assert.match(home, /redirect\(`\/projects\?\$\{query\}`\)/);
+  assert.match(home, /No workspace access/);
+});
+
 test('entry supports a Product link and Analyze Product then reveals the workspace', async () => {
   const [workspace, input] = await Promise.all([
     readFile(new URL('./ListingWorkspace.tsx', import.meta.url), 'utf8'),
@@ -129,6 +137,18 @@ test('normal project analysis cannot enter demo state or synthesize PDF results'
   assert.match(workspace, /analysisInput\.kind === 'uploaded-pdf'[\s\S]*PDF analysis is not available yet/);
   assert.doesNotMatch(workspace, /useDemoFallback|useLiveAnalysis/u);
   assert.doesNotMatch(input, /Stored locally for this demo|Demo Mode/);
+});
+
+test('merchant UI does not promise document analysis before the backend supports it', async () => {
+  const [input, landing] = await Promise.all([
+    readFile(new URL('./ProductInput.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../../app/landing/page.tsx', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(input, /Document upload — coming later/);
+  assert.match(input, /disabled=\{controlsDisabled \|\| mode\.key === 'pdf'\}/);
+  assert.doesNotMatch(landing, /Bring in product specs, PDFs/u);
+  assert.match(landing, /Product link, pasted specifications, and supplier notes/);
 });
 
 test('health, draft provenance, exports, and saved snapshots use current project state', async () => {

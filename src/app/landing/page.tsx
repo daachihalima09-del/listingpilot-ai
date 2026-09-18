@@ -17,7 +17,7 @@ const features = [
 ];
 
 const workflow = [
-  { step: '01', title: 'Import supplier content', description: 'Bring in product specs, PDFs, and notes without losing context.' },
+  { step: '01', title: 'Import supplier content', description: 'Bring in a Product link, pasted specifications, and supplier notes without losing context.' },
   { step: '02', title: 'Generate the first draft', description: 'Turn raw details into title, description, bullets, and SEO metadata.' },
   { step: '03', title: 'Review and approve', description: 'Check claims, adjust wording, and sign off with confidence.' },
 ];
@@ -115,7 +115,7 @@ export default function LandingPage() {
           <div className="max-w-2xl">
             <p className="text-sm font-semibold uppercase tracking-[0.3em] text-brand-300">Workflow</p>
             <h2 className="mt-3 text-3xl font-semibold sm:text-4xl">
-              A simple path from supplier file to polished listing.
+              A simple path from supplier information to a polished listing.
             </h2>
           </div>
           <div className="mt-10 grid gap-6 md:grid-cols-3">

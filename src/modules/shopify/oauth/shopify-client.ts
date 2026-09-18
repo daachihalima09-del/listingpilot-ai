@@ -9,10 +9,20 @@ const tokenResponseSchema = z.object({
 }).passthrough();
 
 const shopResponseSchema = z.object({
-  shop: z.object({
-    name: z.string().trim().min(1).max(255),
-    myshopify_domain: z.string(),
-  }).passthrough(),
+  data: z.object({
+    shop: z.object({
+      id: z.string().regex(/^gid:\/\/shopify\/Shop\/\d+$/u),
+      name: z.string().trim().min(1).max(255),
+      myshopifyDomain: z.string(),
+    }),
+  }),
+  errors: z.array(z.object({ message: z.string() }).passthrough()).optional(),
+}).passthrough();
+
+const shopGraphqlErrorSchema = z.object({
+  errors: z.array(z.object({
+    message: z.string(),
+  }).passthrough()).min(1),
 }).passthrough();
 
 export interface ShopifyTokenResult {
@@ -100,13 +110,19 @@ export async function verifyShopifyShop(
 ): Promise<VerifiedShop> {
   const response = await fetchWithTimeout(
     fetchImplementation,
-    `https://${input.shopDomain}/admin/api/${config.apiVersion}/shop.json`,
+    `https://${input.shopDomain}/admin/api/${config.apiVersion}/graphql.json`,
     {
-      method: 'GET',
+      method: 'POST',
       headers: {
         'X-Shopify-Access-Token': input.accessToken,
         accept: 'application/json',
+        'content-type': 'application/json',
       },
+      body: JSON.stringify({
+        query: `query ListingPilotVerifyShop {
+          shop { id name myshopifyDomain }
+        }`,
+      }),
     },
   );
   if (!response.ok) {
@@ -119,6 +135,9 @@ export async function verifyShopifyShop(
   } catch {
     throw new ShopifyCallbackError('shopify_unavailable', 'invalid_shop_response');
   }
+  if (shopGraphqlErrorSchema.safeParse(untrustedResponse).success) {
+    throw new ShopifyCallbackError('shopify_unavailable', 'shop_verification_failed');
+  }
   const result = shopResponseSchema.safeParse(untrustedResponse);
   if (!result.success) {
     throw new ShopifyCallbackError('shopify_unavailable', 'invalid_shop_response');
@@ -126,7 +145,9 @@ export async function verifyShopifyShop(
 
   let canonicalDomain: string;
   try {
-    canonicalDomain = normalizeShopDomain(result.data.shop.myshopify_domain);
+    canonicalDomain = normalizeShopDomain(
+      result.data.data.shop.myshopifyDomain,
+    );
   } catch {
     throw new ShopifyCallbackError('shopify_unavailable', 'invalid_shop_response');
   }
@@ -135,7 +156,7 @@ export async function verifyShopifyShop(
   }
 
   return {
-    name: result.data.shop.name,
+    name: result.data.data.shop.name,
     shopDomain: canonicalDomain,
   };
 }

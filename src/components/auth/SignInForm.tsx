@@ -70,7 +70,7 @@ export function SignInForm({ callbackUrl }: { callbackUrl: string }) {
           href={signUpHref}
           className="font-semibold text-amber-300 underline-offset-4 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
         >
-          Create an account
+          Activate approved access
         </Link>
       </p>
     </form>

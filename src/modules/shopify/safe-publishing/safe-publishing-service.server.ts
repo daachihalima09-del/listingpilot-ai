@@ -32,6 +32,12 @@ import {
   type ShopifyPublishingPlanPayload,
 } from './publishing-plan';
 import { SafePublishingError } from './safe-publishing-error';
+import {
+  creationCoreChanges,
+  creationVerificationFailures,
+  enforceCoreUpdatePolicies,
+  selectedCoreProductPayload,
+} from './core-field-publishing';
 
 export const preparePublishingSchema = z.object({
   intent: z.enum(['REVIEW', 'CREATE_NEW']).default('REVIEW'),
@@ -76,25 +82,7 @@ function verifyLinkage(context: ProjectContext): { valid: boolean; reason: strin
 }
 
 function creationChanges(draft: ListingDraft, preferences: Awaited<ReturnType<typeof getEffectiveMerchantPreferences>>): PublishingPlanChange[] {
-  const assembledListing = assembleShopifyListing(draft);
-  const productTypeApproved = preferences.catalog.productTypes.some((value) => value.localeCompare(draft.catalog.productType.value, undefined, { sensitivity: 'accent' }) === 0);
-  const vendorApproved = preferences.catalog.vendors.some((value) => value.localeCompare(draft.catalog.vendor.value, undefined, { sensitivity: 'accent' }) === 0);
-  const changes: PublishingPlanChange[] = [
-    ['product.title', 'Title', 'PRODUCT_CONTENT', draft.title.value, 'CREATE', null],
-    ['product.descriptionHtml', 'Description', 'PRODUCT_CONTENT', assembledListing.descriptionHtml, 'CREATE', null],
-    ['product.vendor', 'Vendor', 'CATALOG', draft.catalog.vendor.value, vendorApproved ? 'SET' : 'BLOCKED', vendorApproved ? null : 'Vendor must be approved in the Catalog Profile.'],
-    ['product.productType', 'Product type', 'CATALOG', draft.catalog.productType.value, productTypeApproved ? 'SET' : 'BLOCKED', productTypeApproved ? null : 'Product type must be approved in the Catalog Profile.'],
-    ['product.tags', 'Tags', 'TAGS', draft.catalog.tags.map(({ value }) => value), 'APPEND', null],
-    ['product.status', 'Product status', 'STATUS', 'DRAFT', 'CREATE', null],
-    ['product.seo.title', 'SEO title', 'SEO', draft.seo.title.value, 'BLOCKED', 'SEO creation is not supported by the current verified product-create service.'],
-    ['product.seo.description', 'SEO description', 'SEO', draft.seo.description.value, 'BLOCKED', 'SEO creation is not supported by the current verified product-create service.'],
-    ['product.handle', 'URL handle', 'SEO', draft.seo.handle.value, 'BLOCKED', 'Shopify will create the initial handle; ListingPilot will not force it.'],
-  ].map(([fieldId, displayName, group, proposedValue, operation, blockedReason]) => ({
-    fieldId: String(fieldId), displayName: String(displayName), group: group as PublishingPlanChange['group'], currentValue: null, proposedValue,
-    operation: operation as PublishingPlanChange['operation'], source: 'Reviewed Listing Draft', policy: 'Publishing Profile',
-    risk: fieldId === 'product.status' ? 'HIGH' : 'LOW', approvalRequired: true,
-    selected: !blockedReason && fieldId !== 'product.status', blockedReason: blockedReason ? String(blockedReason) : null, resourceId: null,
-  }));
+  const changes = creationCoreChanges(draft, preferences);
   for (const collection of draft.catalog.collections) changes.push({
     fieldId: `collections.${stableFingerprint(collection.value).slice(0, 12)}`, displayName: 'Collection suggestion', group: 'COLLECTIONS', currentValue: null, proposedValue: collection.value,
     operation: 'BLOCKED', source: 'Reviewed Listing Draft', policy: 'Suggest only; never create collections', risk: 'HIGH', approvalRequired: true, selected: false,
@@ -104,10 +92,8 @@ function creationChanges(draft: ListingDraft, preferences: Awaited<ReturnType<ty
 }
 
 function enforceUpdatePolicies(changes: PublishingPlanChange[], preferences: Awaited<ReturnType<typeof getEffectiveMerchantPreferences>>): PublishingPlanChange[] {
-  return changes.map((change) => {
+  return enforceCoreUpdatePolicies(changes, preferences).map((change) => {
     let reason = change.blockedReason;
-    if (change.fieldId === 'product.vendor' && !preferences.catalog.vendors.includes(String(change.proposedValue))) reason = 'Vendor must be approved in the Catalog Profile.';
-    if (change.fieldId === 'product.productType' && !preferences.catalog.productTypes.includes(String(change.proposedValue))) reason = 'Product type must be approved in the Catalog Profile.';
     if (change.group === 'PRICING' && preferences.publishing.policies.variants.price === 'PRESERVE_EXISTING') reason = 'Pricing is preserved by the Publishing Profile.';
     if (/(?:\.sku|\.barcode)$/u.test(change.fieldId)) reason = 'SKU and barcode are preserved by default.';
     if (change.fieldId === 'product.status' && preferences.publishing.policies.fieldPolicies.find(({ field }) => field === 'PRODUCT_STATUS')?.policy === 'PRESERVE_EXISTING') reason = 'Product status is preserved by the Publishing Profile.';
@@ -237,13 +223,6 @@ export async function saveSafePublishingReview(userId: string, projectId: string
   return { saved: true };
 }
 
-function selectedProductPayload(changes: PublishingPlanChange[]) {
-  const product: Record<string, unknown> = {};
-  const mapping: Record<string, string> = { 'product.title': 'title', 'product.descriptionHtml': 'descriptionHtml', 'product.vendor': 'vendor', 'product.productType': 'productType', 'product.tags': 'tags', 'product.status': 'status' };
-  for (const change of changes) if (mapping[change.fieldId]) product[mapping[change.fieldId]] = change.proposedValue;
-  return product;
-}
-
 export async function executeSafePublishingPlan(userId: string, projectId: string, untrusted: unknown, containerProjectId?: string) {
   const input = publishingPlanSelectionSchema.parse(untrusted);
   const context = await resolvePublishingProject(userId, projectId, containerProjectId);
@@ -276,7 +255,7 @@ export async function executeSafePublishingPlan(userId: string, projectId: strin
   }
 
   const createProduct = plan.mode === 'CREATE_NEW'
-    ? shopifyProductCreateInputSchema.parse({ ...selectedProductPayload(selected), status: 'DRAFT' })
+    ? shopifyProductCreateInputSchema.parse({ ...selectedCoreProductPayload(selected), status: 'DRAFT' })
     : null;
 
   const executionKey = stableFingerprint({ plan: record.id, version: record.planVersion, selected: input.selectedFieldIds, confirmations: input.confirmations }).slice(0, 64);
@@ -295,7 +274,8 @@ export async function executeSafePublishingPlan(userId: string, projectId: strin
       }
       const productGid = `gid://shopify/Product/${result.publication.id}`;
       const verified = normalizeShopifyProductSnapshot(await fetchShopifyCatalogProduct({ request: (request) => requestShopifyAdminApi(context.workspaceId, request) }, productGid), getShopifyConfig().apiVersion);
-      if (verified.product.status !== 'DRAFT' || selected.some((change) => change.fieldId === 'product.title' && verified.product.title !== change.proposedValue)) throw new SafePublishingError('POST_PUBLISH_VERIFICATION_FAILED', 409, 'Shopify changed, but verification did not match the approved plan. Review the product in Shopify.');
+      const verificationFailures = creationVerificationFailures(verified, selected);
+      if (verified.product.status !== 'DRAFT' || verificationFailures.length) throw new SafePublishingError('POST_PUBLISH_VERIFICATION_FAILED', 409, 'Shopify changed, but verification did not match the approved plan. Review the product in Shopify.');
       await completePlan(record.id, context, userId, 'shopify.publish_completed', { outcome: 'SUCCESS', productGid });
       return { outcome: 'SUCCESS' as const, completedOperations: selected.map(({ fieldId }) => fieldId), failedOperations: [], skippedOperations: plan.changes.filter((change) => !input.selectedFieldIds.includes(change.fieldId)).map(({ fieldId }) => fieldId), remoteVerification: 'VERIFIED' as const, recoveryRequired: false, safeRetryAllowed: false, productGid };
     }

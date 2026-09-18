@@ -58,6 +58,20 @@ test('safe download validates each redirect, content, and authoritative hash', a
   assert.match(image.contentHash, /^[a-f0-9]{64}$/);
 });
 
+test('production image requests are pinned to the DNS addresses that passed SSRF validation', async () => {
+  const resolved = ['203.0.113.9'];
+  let requestedAddresses: readonly string[] = [];
+  const image = await downloadRemoteImage('https://cdn.example/image.png', {
+    resolveHost: async () => resolved,
+    requester: async (_url, addresses) => {
+      requestedAddresses = addresses;
+      return new Response(png, { headers: { 'content-type': 'image/png' } });
+    },
+  });
+  assert.deepEqual(requestedAddresses, resolved);
+  assert.match(image.contentHash, /^[a-f0-9]{64}$/);
+});
+
 test('unsafe redirect and HTML masquerading as an image are rejected', async () => {
   await assert.rejects(() => downloadRemoteImage('https://safe.example/a', {
     resolveHost: async () => ['203.0.113.9'],

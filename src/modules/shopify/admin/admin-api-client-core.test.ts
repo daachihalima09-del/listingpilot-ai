@@ -18,7 +18,7 @@ function jsonResponse(
   });
 }
 
-test('builds a versioned authenticated Shopify Admin API request', async () => {
+test('builds a versioned authenticated Shopify GraphQL Admin request', async () => {
   let requestedUrl = '';
   let requestedInit: RequestInit | undefined;
   const client = createShopifyAdminApiClient({
@@ -31,32 +31,29 @@ test('builds a versioned authenticated Shopify Admin API request', async () => {
       return jsonResponse({ shop: { id: 1 } }, {
         headers: {
           'x-request-id': 'request-1',
-          'x-shopify-shop-api-call-limit': '4/40',
         },
       });
     },
   });
 
   const result = await client.request({
-    path: '/shop.json',
-    query: { fields: 'id,name', limit: 1 },
+    path: '/graphql.json',
+    body: { query: 'query { shop { id } }' },
   });
   const url = new URL(requestedUrl);
   assert.equal(
     url.origin + url.pathname,
-    'https://example.myshopify.com/admin/api/2026-07/shop.json',
+    'https://example.myshopify.com/admin/api/2026-07/graphql.json',
   );
-  assert.equal(url.searchParams.get('fields'), 'id,name');
-  assert.equal(url.searchParams.get('limit'), '1');
+  assert.equal(requestedInit?.method, 'POST');
   assert.equal(
     new Headers(requestedInit?.headers).get('X-Shopify-Access-Token'),
     'plaintext-token',
   );
   assert.equal(result.requestId, 'request-1');
-  assert.equal(result.apiCallLimit, '4/40');
 });
 
-test('retries safe GET requests for transient Shopify failures', async () => {
+test('retries explicitly safe GraphQL queries for transient Shopify failures', async () => {
   let attempts = 0;
   const delays: number[] = [];
   const client = createShopifyAdminApiClient({
@@ -76,7 +73,7 @@ test('retries safe GET requests for transient Shopify failures', async () => {
     },
   });
 
-  await client.request({ path: '/products.json' });
+  await client.request({ path: '/graphql.json', retrySafe: true });
   assert.equal(attempts, 3);
   assert.deepEqual(delays, [250, 500]);
 });
@@ -102,7 +99,7 @@ test('honors capped Retry-After values for Shopify 429 responses', async () => {
     },
   });
 
-  await client.request({ path: '/products.json' });
+  await client.request({ path: '/graphql.json', retrySafe: true });
   assert.equal(attempts, 2);
   assert.deepEqual(delays, [5_000]);
 });
@@ -122,7 +119,7 @@ test('does not retry non-idempotent requests', async () => {
   await assert.rejects(
     client.request({
       method: 'POST',
-      path: '/products.json',
+      path: '/graphql.json',
       body: { product: {} },
     }),
     (error: unknown) => {
@@ -152,7 +149,7 @@ test('normalizes authorization and validation errors without raw responses', asy
       }),
     });
     await assert.rejects(
-      client.request({ path: '/products.json' }),
+      client.request({ path: '/graphql.json' }),
       (error: unknown) => {
         assert.ok(error instanceof ShopifyAdminApiError);
         assert.equal(error.code, code);
@@ -181,7 +178,7 @@ test('aborts timed-out requests and returns a safe timeout error', async () => {
   });
 
   await assert.rejects(
-    client.request({ path: '/products.json' }),
+    client.request({ path: '/graphql.json' }),
     (error: unknown) => {
       assert.ok(error instanceof ShopifyAdminApiError);
       assert.equal(error.code, 'SHOPIFY_ADMIN_TIMEOUT');
@@ -201,11 +198,11 @@ test('rejects unsafe paths and invalid success payloads', async () => {
     }),
   });
   await assert.rejects(
-    client.request({ path: 'https://evil.example/products.json' }),
+    client.request({ path: 'https://evil.example/graphql.json' }),
     ShopifyAdminApiError,
   );
   await assert.rejects(
-    client.request({ path: '/products.json' }),
+    client.request({ path: '/graphql.json' }),
     (error: unknown) => {
       assert.ok(error instanceof ShopifyAdminApiError);
       assert.equal(error.code, 'SHOPIFY_ADMIN_INVALID_RESPONSE');

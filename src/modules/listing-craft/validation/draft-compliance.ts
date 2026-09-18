@@ -1,4 +1,5 @@
 import { immutableCopy } from '../../intelligence/domain/immutability.ts';
+import { factValueIsRepresented, unsupportedFactualTokens } from '../../generation-instructions/domain/fact-fidelity.ts';
 import type {
   CraftComplianceFinding,
   CraftComplianceResult,
@@ -89,7 +90,7 @@ export function validateDraftCraftCompliance(input: Readonly<{
       add('NEOVIX_FACT_VALUE_TOO_LONG', 'WARNING', 'SPECIFICATIONS', `specifications.${index}`, 'A structured fact value is too long for the NEOVIX scan-first format.', specification.factIds, 'neovix.specifications.exact-facts', 'Use concise exact values rather than prose.');
     }
     const cited = specification.factIds.map((id) => input.facts.find(({ factId }) => factId === id)).filter((fact): fact is CraftFact => Boolean(fact));
-    if (!cited.length || cited.some((fact) => !normalize(specification.value).includes(normalize(fact.value)))) add('NEOVIX_UNSUPPORTED_CLAIM', 'ERROR', 'SPECIFICATIONS', `specifications.${index}`, 'A structured fact row is not fully supported by its cited Product Truth facts.', specification.factIds, 'neovix.specifications.exact-facts', 'Use only exact selected fact values in the row.');
+    if (!cited.length || cited.some((fact) => !factValueIsRepresented(specification.value, fact.value)) || unsupportedFactualTokens(specification.value, cited.map(({ value }) => value)).length) add('NEOVIX_UNSUPPORTED_CLAIM', 'ERROR', 'SPECIFICATIONS', `specifications.${index}`, 'A structured fact row is not fully supported by its cited Product Truth facts.', specification.factIds, 'neovix.specifications.exact-facts', 'Use only exact selected fact values in the row.');
   }
   if ((input.structuredFactBlock?.required ?? true) && input.draft.specifications.length === 0) add('NEOVIX_FACT_BLOCK_MISSING', 'REVIEW', 'SPECIFICATIONS', 'specifications', 'The NEOVIX structured fact block is missing.', [], 'neovix.specifications.exact-facts', 'Add the available verified facts before the overview.');
   const expectedFields = input.structuredFactBlock?.fields ?? input.craft.specificationCraftRules.fieldGroups.flatMap((group) => {

@@ -48,6 +48,28 @@ function detailsFor(error: unknown): SafeRecord {
     ...(item.metadata && typeof item.metadata === 'object' ? { validation: safeValue(item.metadata) } : {}),
   };
 }
+
+function productionSummary(document: GenerationTraceDocument): SafeRecord {
+  const failedStage = Object.entries(document.stages)
+    .find(([, stage]) => stage?.status === 'FAILED')?.[0] ?? null;
+  return {
+    correlationRequestId: document.correlationRequestId,
+    productId: document.projectId,
+    workspaceId: document.workspaceId,
+    projectVersion: document.projectVersion,
+    instructionFingerprint: document.instructionFingerprint,
+    stages: Object.fromEntries(Object.entries(document.stages).map(([stage, value]) => [stage, {
+      status: value?.status ?? 'SKIPPED',
+      durationMs: value?.durationMs ?? null,
+    }])),
+    failedStage,
+    failure: document.failure ? {
+      errorClass: document.failure.errorClass ?? 'UnknownError',
+      errorCode: document.failure.errorCode ?? null,
+      errorStatus: document.failure.errorStatus ?? null,
+    } : null,
+  };
+}
 async function persist(document: GenerationTraceDocument): Promise<void> {
   await mkdir(generationTraceDirectory, { recursive: true });
   const filename = path.join(generationTraceDirectory, `${document.correlationRequestId}.json`);
@@ -64,11 +86,19 @@ export async function readGenerationTrace(requestId: string): Promise<Generation
   try { return JSON.parse(await readFile(path.join(generationTraceDirectory, `${requestId}.json`), 'utf8')) as GenerationTraceDocument; } catch { return null; }
 }
 
-export function createListingGenerationTrace(input: { readonly requestId: string; readonly projectId: string }): ListingGenerationTrace {
-  const enabled = process.env.NODE_ENV !== 'production';
+export function createListingGenerationTrace(input: {
+  readonly requestId: string;
+  readonly projectId: string;
+  readonly production?: boolean;
+  readonly logger?: Pick<Console, 'error' | 'info'>;
+}): ListingGenerationTrace {
+  const production = input.production ?? process.env.NODE_ENV === 'production';
+  const enabled = !production;
+  const logger = input.logger ?? console;
   const document: GenerationTraceDocument = { correlationRequestId: input.requestId, timestamp: new Date().toISOString(), projectId: input.projectId, workspaceId: null, projectVersion: null, product: { brand: null, model: null, type: null }, instructionFingerprint: null, stages: {}, failure: null };
   let current: ListingGenerationStage | null = null;
   let pending = Promise.resolve();
+  let productionFlushed = false;
   const save = () => { if (enabled) pending = pending.then(() => persist(document)).catch(() => undefined); };
   const now = () => new Date().toISOString();
   return {
@@ -77,6 +107,14 @@ export function createListingGenerationTrace(input: { readonly requestId: string
     start(stage) { current = stage; document.stages[stage] = { startedAt: now(), completedAt: null, durationMs: null, status: 'STARTED' }; save(); },
     complete(stage, details = {}) { const prior = document.stages[stage]; const completedAt = now(); document.stages[stage] = { startedAt: prior?.startedAt ?? completedAt, completedAt, durationMs: prior?.startedAt ? Date.parse(completedAt) - Date.parse(prior.startedAt) : 0, status: 'PASSED', ...(Object.keys(details).length ? { details: safeValue(details) as SafeRecord } : {}) }; save(); },
     fail(error) { const failure = detailsFor(error); document.failure = failure; if (current) { const prior = document.stages[current]; const completedAt = now(); document.stages[current] = { startedAt: prior?.startedAt ?? completedAt, completedAt, durationMs: prior?.startedAt ? Date.parse(completedAt) - Date.parse(prior.startedAt) : 0, status: 'FAILED', details: failure }; } save(); },
-    async flush() { await pending; },
+    async flush() {
+      await pending;
+      if (production && !productionFlushed) {
+        productionFlushed = true;
+        const summary = productionSummary(document);
+        if (document.failure) logger.error('Listing generation request failed.', summary);
+        else logger.info('Listing generation request completed.', summary);
+      }
+    },
   };
 }

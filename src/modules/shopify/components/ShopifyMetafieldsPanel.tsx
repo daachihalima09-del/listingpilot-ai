@@ -10,9 +10,6 @@ import {
 import Link from 'next/link';
 import { useRef, useState } from 'react';
 import type {
-  MetafieldCatalogGroup,
-} from '../metafields/metafield-catalog';
-import type {
   ShopifyMetafieldConfigurationDto,
 } from '../metafields/metafield-repository';
 import {
@@ -20,27 +17,20 @@ import {
   ShopifyMetafieldClientError,
 } from '../metafields/shopify-metafield-client';
 import {
-  getShopifyMetafieldViewState,
+  canSaveLocalMetafieldConfiguration, getShopifyMetafieldViewState,
 } from '../metafields/metafield-view-state';
-
-const groups: Array<{
-  id: MetafieldCatalogGroup;
-  title: string;
-  note?: string;
-}> = [
-  { id: 'SPECIFICATIONS', title: 'Specifications' },
-  {
-    id: 'PRODUCT_TRUTH',
-    title: 'Product Truth',
-    note: 'Only summary metadata is published. Evidence and source content remain private in ListingPilot.',
-  },
-  { id: 'GENERATED_CONTENT', title: 'Generated Content' },
-  { id: 'SYSTEM_METADATA', title: 'System Metadata' },
-];
 
 interface Feedback {
   tone: 'success' | 'partial' | 'error';
   message: string;
+}
+
+export function MetafieldTechnicalDetails({ configuration }: { configuration: ShopifyMetafieldConfigurationDto }) {
+  return <section className="rounded-2xl border border-white/10 bg-[#081423] p-5">
+    <h3 className="text-sm font-semibold text-white">Metafield Technical Details</h3>
+    <p className="mt-2 text-xs text-slate-500">Internal metadata, Shopify types, destinations, and publication state. Product Truth evidence remains private.</p>
+    <div className="mt-4 grid gap-2">{configuration.fields.map((field) => <div key={field.catalogId} className="grid gap-1 rounded-lg border border-white/10 p-3 text-xs sm:grid-cols-[1fr_auto]"><span className="text-slate-300">{field.displayName}</span><span className="break-all text-slate-500">{field.namespace}.{field.key} · {field.type} · {field.publicationStatus.replaceAll('_', ' ')}</span></div>)}</div>
+  </section>;
 }
 
 export function ShopifyMetafieldsPanel({
@@ -75,10 +65,14 @@ export function ShopifyMetafieldsPanel({
     canManage,
     hasMappedData: configuration.hasMappedData,
   });
-  const controlsEnabled = viewState === 'READY' && activity === 'idle';
+  const localControlsEnabled = canSaveLocalMetafieldConfiguration({
+    canManage,
+    hasMappedData: configuration.hasMappedData,
+  }) && activity === 'idle';
+  const publishEnabled = viewState === 'READY' && activity === 'idle';
 
   function toggle(catalogId: string) {
-    if (!controlsEnabled) return;
+    if (!localControlsEnabled || catalogId.startsWith('review.')) return;
     setConfiguration((current) => ({
       ...current,
       fields: current.fields.map((field) => (
@@ -86,13 +80,34 @@ export function ShopifyMetafieldsPanel({
           ? { ...field, enabled: !field.enabled }
           : field
       )),
+      recommendations: current.recommendations.map((field) => (
+        field.catalogId === catalogId ? { ...field, enabled: !field.enabled } : field
+      )),
+    }));
+    setDirty(true);
+    setFeedback(null);
+  }
+
+  function selectMapping(catalogId: string, value: string) {
+    if (!localControlsEnabled) return;
+    const [namespace, key] = value.split('.', 2);
+    if (!namespace || !key) return;
+    setConfiguration((current) => ({
+      ...current,
+      fields: current.fields.map((field) => field.catalogId === catalogId ? { ...field, namespace, key } : field),
+      recommendations: current.recommendations.map((field) => field.catalogId === catalogId ? {
+        ...field,
+        destination: value,
+        status: 'MAPPED',
+        note: 'Uses the compatible Shopify field selected by the merchant.',
+      } : field),
     }));
     setDirty(true);
     setFeedback(null);
   }
 
   async function save(): Promise<boolean> {
-    if (!controlsEnabled || submitting.current) return false;
+    if (!localControlsEnabled || submitting.current) return false;
     if (!dirty) return true;
     submitting.current = true;
     setActivity('saving');
@@ -100,9 +115,11 @@ export function ShopifyMetafieldsPanel({
     try {
       const saved = await client.current.save(projectId, {
         version: configuration.version,
-        fields: configuration.fields.map(({ catalogId, enabled }) => ({
+        fields: configuration.fields.map(({ catalogId, enabled, namespace, key }) => ({
           catalogId,
           enabled,
+          namespace,
+          key,
         })),
       });
       setConfiguration(saved);
@@ -124,7 +141,7 @@ export function ShopifyMetafieldsPanel({
   }
 
   async function publish() {
-    if (!controlsEnabled || dirty || submitting.current) return;
+    if (!publishEnabled || dirty || submitting.current) return;
     submitting.current = true;
     setActivity('publishing');
     setFeedback(null);
@@ -184,7 +201,7 @@ export function ShopifyMetafieldsPanel({
 
       {viewState === 'CONFIGURATION_MISSING' || viewState === 'NOT_CONNECTED' ? (
         <div className="mt-5 rounded-xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-100">
-          Shopify must be configured and connected before metafields can be managed.{' '}
+          You can review and save this local configuration now. Connect Shopify later to discover definitions or publish.{' '}
           <Link href="/settings/shopify" className="font-semibold underline underline-offset-4">
             Open Shopify settings
           </Link>
@@ -203,45 +220,48 @@ export function ShopifyMetafieldsPanel({
         </div>
       ) : null}
 
-      <div className="mt-5 space-y-5">
-        {groups.map((group) => (
-          <div key={group.id}>
-            <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-300">
-              {group.title}
-            </h3>
-            {group.note ? (
-              <p className="mt-1 text-xs leading-5 text-slate-500">{group.note}</p>
-            ) : null}
-            <div className="mt-2 grid gap-2">
-              {configuration.fields
-                .filter((field) => field.group === group.id)
-                .map((field) => (
+      <div className="mt-5 grid gap-3 sm:grid-cols-4">
+        {([
+          ['Recommended', configuration.summary.recommended],
+          ['Mapped', configuration.summary.mapped],
+          ['Needs review', configuration.summary.needsReview],
+          ['Optional', configuration.summary.optional],
+        ] as const).map(([label, count]) => (
+          <div key={label} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+            <p className="text-2xl font-semibold text-white">{count}</p>
+            <p className="mt-1 text-xs text-slate-400">{label}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-6">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-300">Structured Product Data</p>
+        <h3 className="mt-2 text-lg font-semibold text-white">Recommended for {configuration.catalogCategory.replaceAll('_', ' ').toLocaleLowerCase('en-US')}</h3>
+        <p className="mt-1 text-sm text-slate-400">Only verified Product Truth is recommended automatically.</p>
+        <div className="mt-3 grid gap-2">
+          {configuration.recommendations.length ? configuration.recommendations.map((field) => (
                   <div
                     key={field.catalogId}
                     className="flex items-start justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3"
                   >
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-medium text-slate-100">{field.displayName}</span>
-                        <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-slate-500">
-                          {field.type}
-                        </span>
-                        <span className="text-[10px] uppercase tracking-wide text-slate-500">
-                          {field.publicationStatus.replaceAll('_', ' ')}
+                        <span className="text-sm font-medium text-slate-100">{field.label}</span>
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] ${field.status === 'NEEDS_REVIEW' ? 'bg-amber-400/10 text-amber-200' : 'bg-emerald-400/10 text-emerald-200'}`}>
+                          {field.status.replaceAll('_', ' ')}
                         </span>
                       </div>
-                      <p className="mt-1 text-xs text-slate-500">{field.description}</p>
-                      <p className="mt-1 truncate text-xs text-slate-300">
-                        {field.preview ?? 'No mapped value'}
-                      </p>
+                      <p className="mt-1 text-sm text-slate-200">{field.value}</p>
+                      <p className="mt-1 text-xs text-slate-500">{field.destination} · {field.note}</p>
+                      {field.options.length > 1 ? <select aria-label={`Choose Shopify field for ${field.label}`} value={field.status === 'MAPPED' ? field.destination : ''} onChange={(event) => selectMapping(field.catalogId, event.target.value)} className="mt-2 rounded-lg border border-white/10 bg-[#0d1a2b] px-3 py-2 text-xs text-slate-200"><option value="">Choose a compatible Shopify field</option>{field.options.map((option) => <option key={`${option.namespace}.${option.key}`} value={`${option.namespace}.${option.key}`}>{option.label} ({option.namespace}.{option.key})</option>)}</select> : null}
                     </div>
                     <button
                       type="button"
                       role="switch"
                       aria-checked={field.enabled}
-                      aria-label={`${field.enabled ? 'Disable' : 'Enable'} ${field.displayName}`}
+                      aria-label={`${field.enabled ? 'Disable' : 'Enable'} ${field.label}`}
                       onClick={() => toggle(field.catalogId)}
-                      disabled={!controlsEnabled || field.catalogId === 'listingpilot_system.schema_version' || field.catalogId === 'listingpilot_system.project_reference'}
+                      disabled={!localControlsEnabled || field.status === 'NEEDS_REVIEW'}
                       className={`relative h-6 w-11 shrink-0 rounded-full transition disabled:opacity-50 ${
                         field.enabled ? 'bg-amber-400' : 'bg-slate-700'
                       }`}
@@ -251,11 +271,11 @@ export function ShopifyMetafieldsPanel({
                       }`} />
                     </button>
                   </div>
-                ))}
-            </div>
-          </div>
-        ))}
+                )) : <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 text-sm text-slate-400">No category-specific verified attributes are available yet. Verified specifications remain available in technical details.</div>}
+        </div>
       </div>
+
+      {configuration.nativeFields.length ? <div className="mt-6"><h3 className="text-sm font-semibold text-white">Managed in Listing</h3><p className="mt-1 text-xs text-slate-500">These are native Shopify product fields, not metafields.</p><div className="mt-2 grid gap-2 sm:grid-cols-2">{configuration.nativeFields.map((field) => <div key={`${field.label}-${field.value}`} className="rounded-xl border border-white/10 p-3"><p className="text-xs text-slate-500">{field.label}</p><p className="mt-1 text-sm text-slate-200">{field.value}</p></div>)}</div></div> : null}
 
       {configuration.conflicts.map((conflict) => (
         <div key={conflict.catalogId} role="alert" className="mt-4 flex gap-2 rounded-xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-100">
@@ -272,7 +292,7 @@ export function ShopifyMetafieldsPanel({
         <button
           type="button"
           onClick={() => void save()}
-          disabled={!controlsEnabled || !dirty}
+          disabled={!localControlsEnabled || !dirty}
           className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-white/15 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >
           {activity === 'saving'
@@ -286,7 +306,7 @@ export function ShopifyMetafieldsPanel({
             onClick={() => void (async () => {
               if (await save()) onNext();
             })()}
-            disabled={!controlsEnabled}
+            disabled={!localControlsEnabled}
             className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-amber-400 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50"
           >
             Save &amp; Continue to Shopify &#8594;
@@ -295,7 +315,7 @@ export function ShopifyMetafieldsPanel({
         <button
           type="button"
           onClick={() => void publish()}
-          disabled={!controlsEnabled || dirty}
+          disabled={!publishEnabled || dirty}
           className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-amber-400 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50"
         >
           {activity === 'publishing'

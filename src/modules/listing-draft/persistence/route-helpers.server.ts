@@ -7,8 +7,15 @@ import { MerchantPreferenceError } from '../../merchant-preferences/index.ts';
 import { OpenAiResponsesError } from '../../openai/responses-client-core.ts';
 import { ProjectError } from '../../projects/types/errors.ts';
 import { ListingDraftError } from '../domain/errors.ts';
+import { AiProtectionError } from '../../ai-usage/domain.ts';
 
 export function listingDraftRouteErrorResponse(error: unknown): NextResponse {
+  if (error instanceof AiProtectionError) {
+    return NextResponse.json({ error: { code: error.code, message: error.message } }, {
+      status: error.statusCode,
+      headers: error.retryAfterSeconds ? { 'retry-after': String(error.retryAfterSeconds) } : undefined,
+    });
+  }
   if (error instanceof ZodError) {
     return NextResponse.json({ error: { code: 'DRAFT_INVALID_REQUEST', message: 'The listing draft request is invalid.' } }, { status: 400 });
   }

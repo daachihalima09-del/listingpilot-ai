@@ -58,3 +58,15 @@ test('unresolved conflicts and selected blocked fields reject planning', () => {
   }), /UNRESOLVED_CONFLICT/);
 });
 
+test('unselected SEO and catalog fields remain untouched', () => {
+  const seoTitle = buildReviewField({ fieldPath: 'product.seo.title', label: 'SEO title', resourceType: 'PRODUCT', baselineValue: 'Existing SEO', localValue: 'Reviewed SEO', remoteValue: 'Existing SEO', publishable: true });
+  const vendor = buildReviewField({ fieldPath: 'product.vendor', label: 'Vendor', resourceType: 'PRODUCT', baselineValue: 'Existing vendor', localValue: 'Approved vendor', remoteValue: 'Existing vendor', publishable: true });
+  const extended = { ...review, fields: [field, seoTitle, vendor] };
+  const plan = buildSelectiveUpdatePlan({
+    reviewId: 'review-2', reviewVersion: 1, review: extended,
+    decisions: { 'product.title': 'USE_LISTINGPILOT', 'product.seo.title': 'KEEP_SHOPIFY', 'product.vendor': 'SKIP' },
+  });
+  assert.deepEqual(plan.productFieldChanges, { 'product.title': 'B' });
+  assert.ok(plan.skippedFields.includes('product.seo.title'));
+  assert.ok(plan.skippedFields.includes('product.vendor'));
+});

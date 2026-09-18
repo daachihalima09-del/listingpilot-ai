@@ -20,3 +20,35 @@ test('development generation traces persist bounded validator diagnostics and ar
   assert.equal(((stored?.failure?.validation as { generatedText?: string }).generatedText ?? '').length, 500);
   assert.equal(stored?.stages.response?.status, 'PASSED');
 });
+
+test('production generation traces emit one correlation-safe summary without product content', async () => {
+  const events: unknown[][] = [];
+  const requestId = '22222222-2222-4222-8222-222222222222';
+  const trace = createListingGenerationTrace({
+    requestId,
+    projectId: randomUUID(),
+    production: true,
+    logger: {
+      error: (...values: unknown[]) => events.push(values),
+      info: (...values: unknown[]) => events.push(values),
+    },
+  });
+  trace.context({
+    workspaceId: randomUUID(),
+    projectVersion: 4,
+    product: { brand: 'Private Merchant Brand', model: 'Secret Model', type: 'Private Type' },
+    instructionFingerprint: 'safe-fingerprint',
+  });
+  trace.start('provider_request');
+  trace.fail(new ListingDraftError('DRAFT_PROVIDER_FAILED', 'Private generated content', 502, {
+    outputField: 'title', generatedText: 'Do not log this value',
+  }));
+  await trace.flush();
+  await trace.flush();
+  assert.equal(events.length, 1);
+  const serialized = JSON.stringify(events[0]);
+  assert.match(serialized, new RegExp(requestId));
+  assert.match(serialized, /provider_request/u);
+  assert.match(serialized, /DRAFT_PROVIDER_FAILED/u);
+  assert.doesNotMatch(serialized, /Private Merchant Brand|Secret Model|Private Type|Private generated content|Do not log this value/u);
+});

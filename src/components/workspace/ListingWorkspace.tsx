@@ -43,10 +43,10 @@ import {
 } from '@/modules/projects/client/use-project-autosave';
 import { ProjectApiError, projectApiRequest } from '@/modules/projects/client/project-api';
 import { ShopifyPublishingPanel } from '@/modules/shopify/components/ShopifyPublishingPanel';
-import { ShopifyListingPreview } from '@/modules/shopify/components/ShopifyListingPreview';
+import { ShopifyProductReview } from '@/modules/shopify/components/ShopifyProductReview';
 import { assembleShopifyListing } from '@/modules/shopify/content/shopify-description';
 import { ShopifyVariantsPanel } from '@/modules/shopify/components/ShopifyVariantsPanel';
-import { ShopifyMetafieldsPanel } from '@/modules/shopify/components/ShopifyMetafieldsPanel';
+import { MetafieldTechnicalDetails, ShopifyMetafieldsPanel } from '@/modules/shopify/components/ShopifyMetafieldsPanel';
 import { ShopifyImagesPanel } from '@/modules/shopify/components/ShopifyImagesPanel';
 import {
   ShopifyPublicationCoordinatorPanel,
@@ -263,6 +263,7 @@ interface ListingWorkspaceProps {
   generationEligibility?: CanonicalGenerationEligibility | null;
   generationEligibilityVersion?: number;
   shopifyPublishing?: ShopifyPublishingContext;
+  shopifyStoreName?: string | null;
   shopifyCoordinator?: {
     configured: boolean;
     connected: boolean;
@@ -314,6 +315,7 @@ export function ListingWorkspace({
   generationEligibility: initialGenerationEligibility = null,
   generationEligibilityVersion: initialGenerationEligibilityVersion,
   shopifyPublishing,
+  shopifyStoreName = null,
   shopifyCoordinator,
   shopifyVariants,
   shopifyMetafields,
@@ -533,10 +535,37 @@ export function ListingWorkspace({
     return false;
   }, [inputMode, productUrl, specText, supplierUrl]);
 
+  const resetAnalysisResults = () => {
+    setAnalysisStarted(false);
+    setActiveStage('input');
+    setCompletedStages([]);
+    setIsRunning(false);
+    setHasConflict(false);
+    setConflictResolved(false);
+    setVisibleRows(0);
+    setShowSources(0);
+    setShowRecommendation(false);
+    setRecommendationConfidence(0);
+  };
+
+  const invalidateDerivedProductState = () => {
+    resetAnalysisResults();
+    setActiveProduct(emptyProduct);
+    setTruthRows(emptyProduct.truthRows);
+    setAnalysisContext(null);
+    setListingContent(emptyListingContent);
+    setListingDraft(null);
+    setGenerationEligibility(null);
+    setGenerationEligibilityVersion(null);
+    setEligibilityRefreshStatus('idle');
+    setDraftError(null);
+  };
+
   const handleModeChange = (mode: typeof inputMode) => {
     if (isReadOnly) {
       return;
     }
+    if (mode !== inputMode) invalidateDerivedProductState();
     setInputMode(mode);
     setInputError(null);
   };
@@ -547,8 +576,10 @@ export function ListingWorkspace({
     }
     const normalizedValue = normalizePastedHttpUrl(value);
     if (mode === 'url') {
+      if (normalizedValue !== supplierUrl) invalidateDerivedProductState();
       setSupplierUrl(normalizedValue);
     } else {
+      if (normalizedValue !== productUrl) invalidateDerivedProductState();
       setProductUrl(normalizedValue);
     }
     setInputError(null);
@@ -559,6 +590,7 @@ export function ListingWorkspace({
       return;
     }
     if (!file) {
+      if (selectedPdf) invalidateDerivedProductState();
       setSelectedPdf(null);
       setInputError(null);
       return;
@@ -570,6 +602,9 @@ export function ListingWorkspace({
       return;
     }
 
+    if (file.name !== selectedPdf?.name || file.size !== selectedPdf.size) {
+      invalidateDerivedProductState();
+    }
     setSelectedPdf(file);
     setInputError(null);
   };
@@ -604,19 +639,6 @@ export function ListingWorkspace({
       return null;
     }
     return { kind: 'uploaded-pdf', filename: selectedPdf.name };
-  };
-
-  const resetAnalysisResults = () => {
-    setAnalysisStarted(false);
-    setActiveStage('input');
-    setCompletedStages([]);
-    setIsRunning(false);
-    setHasConflict(false);
-    setConflictResolved(false);
-    setVisibleRows(0);
-    setShowSources(0);
-    setShowRecommendation(false);
-    setRecommendationConfidence(0);
   };
 
   const startPipeline = (
@@ -660,18 +682,22 @@ export function ListingWorkspace({
     const requestTimeout = window.setTimeout(() => requestController.abort(), 85_000);
 
     try {
+      const productIdentity = initialProject?.containerProjectId ? {
+        workspaceId: initialProject.workspaceId,
+        projectId: initialProject.containerProjectId,
+        productId: initialProject.id,
+        version: projectSave.currentVersion,
+      } : null;
+      if (!productIdentity) {
+        throw new AnalysisRequestError('Open a Product workspace before running analysis.');
+      }
       const requestBody = analysisInput.kind === 'raw-specifications'
-        ? { source: 'raw-specifications' as const, specifications: specText.trim() }
+        ? { source: 'raw-specifications' as const, specifications: specText.trim(), productIdentity, operationRequestId: crypto.randomUUID() }
         : {
             source: analysisInput.kind,
             url: analysisInput.url,
-            ...(initialProject?.containerProjectId ? {
-              productIdentity: {
-                workspaceId: initialProject.workspaceId,
-                projectId: initialProject.containerProjectId,
-                productId: initialProject.id,
-              },
-            } : {}),
+            productIdentity,
+            operationRequestId: crypto.randomUUID(),
           };
       const response = await fetch('/api/analyze', {
         method: 'POST',
@@ -982,7 +1008,11 @@ export function ListingWorkspace({
         `${productApiBase}/listing-draft`,
         {
           method: 'POST',
-          body: { workspaceId: initialProject.workspaceId, version: authoritativeVersion },
+          body: {
+            workspaceId: initialProject.workspaceId,
+            version: authoritativeVersion,
+            operationRequestId: crypto.randomUUID(),
+          },
           timeoutMs: GENERATION_TIMEOUT_MS,
           timeoutMessage: "We couldn't generate this listing in time. Please try again.",
         },
@@ -1119,6 +1149,7 @@ export function ListingWorkspace({
           workspaceId: initialProject.workspaceId,
           version: projectSave.currentVersion,
           section,
+          operationRequestId: crypto.randomUUID(),
         },
         timeoutMs: 90_000,
       });
@@ -1296,6 +1327,7 @@ export function ListingWorkspace({
                 canAnalyze={canAnalyze}
                 specText={specText}
                 onSpecTextChange={(value) => {
+                  if (value !== specText) invalidateDerivedProductState();
                   setSpecText(value);
                   setInputError(null);
                 }}
@@ -1349,17 +1381,11 @@ export function ListingWorkspace({
 
           {workspaceTab === 'METAFIELDS' && initialProject && shopifyMetafields ? <div id="workspace-panel-metafields" role="tabpanel" aria-labelledby="workspace-tab-metafields" className="mt-6"><ShopifyMetafieldsPanel key={`metafields-${shopifyPanelGeneration}`} projectId={initialProject.id} configured={shopifyMetafields.configured} connected={shopifyMetafields.connected} canManage={shopifyMetafields.canManage} hasPublishedProduct={hasPublishedShopifyProduct} initialConfiguration={shopifyMetafields.configuration} onNext={() => selectWorkspaceTab('SHOPIFY')} /></div> : null}
 
-        {workspaceTab === 'SHOPIFY' ? <div id="workspace-panel-shopify" role="tabpanel" aria-labelledby="workspace-tab-shopify" className="mt-6 space-y-6">{shopifyListingPreview ? <ShopifyListingPreview listing={shopifyListingPreview} notice={listingDraft?.status === 'SAVED' ? 'This saved listing is the version that will be reviewed before publishing.' : 'Save the listing before continuing to Shopify.'} /> : <section className="rounded-[1.75rem] border border-white/10 bg-[#081423] p-5 sm:p-7"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Shopify Preview</p><h2 className="mt-2 text-2xl font-semibold text-white">Generate a listing to preview the final product</h2><p className="mt-2 text-sm leading-6 text-slate-400">Your title, description, organization, SEO, images, and optional metafields will appear here.</p></section>}<section className="rounded-[1.75rem] border border-amber-300/20 bg-[#081423] p-5 sm:p-7"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Ready for Shopify</p><h2 className="mt-2 text-2xl font-semibold text-white">Review the complete product before publishing</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">ListingPilot will show every proposed Shopify change for confirmation. Nothing is published from this page.</p><div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{[
-          ['Content', listingDraft?.status === 'SAVED' && publishingReviewComplete ? 'Saved and approved' : 'Needs review'],
-          ['Images', shopifyImages?.configuration.images.length ? `${shopifyImages.configuration.images.length} selected` : 'Optional'],
-          ['Organization', listingDraft?.reviewWorkspace?.reviewedSections.includes('CATALOG') ? 'Reviewed' : 'Needs review'],
-          ['Pricing & Variants', shopifyVariants?.configuration.variants.length ? `${shopifyVariants.configuration.variants.length} configured` : 'Optional'],
-          ['SEO', listingDraft?.reviewWorkspace?.reviewedSections.includes('SEO') ? 'Reviewed' : 'Needs review'],
-          ['Metafields', shopifyMetafields?.configuration.fields.some(({ enabled }) => enabled) ? 'Selected' : 'Optional'],
-        ].map(([label, value]) => <div key={label} className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm"><span className="text-slate-500">{label}</span><p className="mt-1 font-medium text-white">{value}</p></div>)}</div><div className="mt-5 flex flex-wrap gap-3 text-sm"><span className="rounded-full border border-white/10 px-3 py-2 text-slate-300">Store: {shopifyPublishing?.connected ? 'Connected' : 'Not connected'}</span><span className="rounded-full border border-white/10 px-3 py-2 text-slate-300">Destination chosen during review</span></div>{productWorkspaceBase ? <Link href={`${productWorkspaceBase}/shopify-publish`} className="mt-6 inline-flex rounded-xl bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-200">Review &amp; Publish to Shopify →</Link> : null}</section></div> : null}
+        {workspaceTab === 'SHOPIFY' ? <div id="workspace-panel-shopify" role="tabpanel" aria-labelledby="workspace-tab-shopify" className="mt-6">{shopifyListingPreview && listingDraft && productWorkspaceBase ? <ShopifyProductReview listing={shopifyListingPreview} draft={listingDraft} images={shopifyImages?.configuration ?? null} variants={shopifyVariants?.configuration ?? null} metafields={shopifyMetafields?.configuration ?? null} publishing={shopifyPublishing} storeName={shopifyStoreName} reviewComplete={publishingReviewComplete} onEdit={selectWorkspaceTab} publishHref={`${productWorkspaceBase}/shopify-publish`} /> : <section className="rounded-[1.75rem] border border-white/10 bg-[#081423] p-5 sm:p-7"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Shopify</p><h2 className="mt-2 text-2xl font-semibold text-white">Generate a listing to review the complete Product</h2><p className="mt-2 text-sm leading-6 text-slate-400">The Shopify review will use the saved listing, images, organization, variants, metafields, and SEO. Nothing is published here.</p></section>}</div> : null}
 
           {workspaceTab === 'ADVANCED' ? <section id="workspace-panel-advanced" role="tabpanel" aria-labelledby="workspace-tab-advanced" className="mt-6"><details className="rounded-2xl border border-white/10 bg-[#081423]"><summary className="cursor-pointer px-5 py-4 font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300">Open technical and legacy tools</summary><div className="border-t border-white/10 p-4"><div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
             <div className="min-w-0 space-y-6">
+              {shopifyMetafields ? <MetafieldTechnicalDetails configuration={shopifyMetafields.configuration} /> : null}
               <ProductInput
                 inputMode={inputMode}
                 onModeChange={handleModeChange}
@@ -1369,6 +1395,7 @@ export function ListingWorkspace({
                 canAnalyze={canAnalyze}
                 specText={specText}
                 onSpecTextChange={(value) => {
+                  if (value !== specText) invalidateDerivedProductState();
                   setSpecText(value);
                   setInputError(null);
                 }}

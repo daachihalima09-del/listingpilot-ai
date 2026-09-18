@@ -39,6 +39,8 @@ export function createShopifyProductCreationRepository(
               ...(product.body_html === undefined ? {} : { descriptionHtml: product.body_html }),
               ...(product.vendor === undefined ? {} : { vendor: product.vendor }),
               ...(product.product_type === undefined ? {} : { productType: product.product_type }),
+              ...(product.handle === undefined ? {} : { handle: product.handle }),
+              ...(product.seo === undefined ? {} : { seo: product.seo }),
               ...(product.tags ? { tags: product.tags.split(',').map((tag) => tag.trim()).filter(Boolean) } : {}),
               status: product.status.toUpperCase(),
             },

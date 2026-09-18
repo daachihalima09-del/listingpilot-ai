@@ -6,6 +6,8 @@ export interface ShopifyProductCreatePayload {
     body_html?: string;
     vendor?: string;
     product_type?: string;
+    handle?: string;
+    seo?: Readonly<{ title?: string; description?: string }>;
     tags: string;
     status: 'active' | 'draft';
   };
@@ -24,6 +26,8 @@ export function buildShopifyProductCreatePayload(
       ...(input.productType === undefined
         ? {}
         : { product_type: input.productType }),
+      ...(input.handle === undefined ? {} : { handle: input.handle }),
+      ...(input.seo === undefined ? {} : { seo: input.seo }),
       tags: input.tags.join(', '),
       status: input.status.toLowerCase() as 'active' | 'draft',
     },

@@ -41,3 +41,35 @@ test('parseServerEnv rejects missing or unsafe required values without echoing t
     },
   );
 });
+
+test('parseServerEnv requires a public HTTPS AUTH_URL in production', () => {
+  for (const authUrl of [undefined, 'http://listingpilot.example.com', 'https://localhost:3000']) {
+    assert.throws(
+      () => parseServerEnv({
+        ...validEnvironment,
+        AUTH_URL: authUrl,
+        NODE_ENV: 'production',
+        VERCEL: '1',
+      }),
+      /AUTH_URL/,
+    );
+  }
+
+  const environment = parseServerEnv({
+    ...validEnvironment,
+    AUTH_URL: 'https://listingpilot.example.com',
+    NODE_ENV: 'production',
+    VERCEL: '1',
+  });
+  assert.equal(environment.AUTH_URL, 'https://listingpilot.example.com');
+});
+
+test('parseServerEnv allows a localhost URL for a local production build', () => {
+  const environment = parseServerEnv({
+    ...validEnvironment,
+    NODE_ENV: 'production',
+    AUTH_URL: 'http://localhost:3000',
+  });
+
+  assert.equal(environment.AUTH_URL, 'http://localhost:3000');
+});

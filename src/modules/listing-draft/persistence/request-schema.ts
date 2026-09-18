@@ -5,6 +5,7 @@ import { draftRegenerationSections } from '../validation/draft-schema.ts';
 export const generateListingDraftRequestSchema = z.object({
   workspaceId: z.string().uuid(),
   version: z.number().int().positive(),
+  operationRequestId: z.string().uuid(),
 }).strict();
 
 export const saveListingDraftRequestSchema = z.object({
@@ -17,4 +18,5 @@ export const regenerateListingDraftRequestSchema = z.object({
   workspaceId: z.string().uuid(),
   version: z.number().int().positive(),
   section: z.enum(draftRegenerationSections),
+  operationRequestId: z.string().uuid(),
 }).strict();

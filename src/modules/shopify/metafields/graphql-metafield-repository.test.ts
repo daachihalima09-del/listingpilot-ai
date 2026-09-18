@@ -16,7 +16,6 @@ function response(data: unknown) {
     data,
     status: 200,
     requestId: null,
-    apiCallLimit: null,
   };
 }
 
@@ -221,4 +220,3 @@ test('validates metafieldsSet success, userErrors, and batch limits', async () =
     ShopifyMetafieldError,
   );
 });
-

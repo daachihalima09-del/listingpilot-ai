@@ -35,6 +35,7 @@ export interface ShopifyMetafieldProjectContext {
   shopifyStoreId: string | null;
   shopifyProductId: string | null;
   projectData: {
+    productType?: string | null;
     analysisData: unknown;
     generatedListing: unknown;
     seoData: unknown;
@@ -52,6 +53,8 @@ export interface MetafieldPreviewField {
   hasValue: boolean;
   preview: string | null;
   publicationStatus: 'NOT_PUBLISHED' | 'PUBLISHED' | 'CHANGED';
+  namespace: string;
+  key: string;
 }
 
 export interface ShopifyMetafieldConfigurationDto {
@@ -66,6 +69,19 @@ export interface ShopifyMetafieldConfigurationDto {
     expectedType: string;
     existingType: string;
   }>;
+  catalogCategory: string;
+  summary: { recommended: number; mapped: number; needsReview: number; optional: number };
+  recommendations: Array<{
+    catalogId: string;
+    label: string;
+    value: string;
+    enabled: boolean;
+    status: 'RECOMMENDED' | 'MAPPED' | 'NEEDS_REVIEW' | 'OPTIONAL';
+    destination: string;
+    note: string;
+    options: Array<{ namespace: string; key: string; label: string }>;
+  }>;
+  nativeFields: Array<{ label: string; value: string; note: 'Managed in Listing' }>;
 }
 
 export interface ShopifyMetafieldRepository {
@@ -131,4 +147,3 @@ export interface ShopifyMetafieldRepository {
     };
   }): Promise<void>;
 }
-

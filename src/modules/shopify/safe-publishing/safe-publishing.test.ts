@@ -102,11 +102,18 @@ test('plans preserve tags by append and require high-impact server confirmation'
 
 test('safe publishing source has no inventory or collection mutations and no create fallback in update review', () => {
   const service = readFileSync(new URL('./safe-publishing-service.server.ts', import.meta.url), 'utf8');
+  const coreFields = readFileSync(new URL('./core-field-publishing.ts', import.meta.url), 'utf8');
   const reviewService = readFileSync(new URL('../review/review-service.server.ts', import.meta.url), 'utf8');
   const client = readFileSync(new URL('../components/SafeShopifyPublishingClient.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(service, /inventoryAdjust|inventorySet|collectionCreate|collectionDelete|collectionUpdate/iu);
   assert.doesNotMatch(reviewService, /productCreate|productVariantsBulkCreate/iu);
   assert.match(service, /status: 'DRAFT'/u);
+  assert.match(service, /selectedCoreProductPayload\(selected\)/u);
+  assert.match(service, /creationVerificationFailures\(verified, selected\)/u);
+  assert.doesNotMatch(service, /SEO creation is not supported by the current verified product-create service/u);
+  assert.match(coreFields, /catalogValueIsApproved/u);
+  assert.match(reviewService, /'product\.handle': 'handle'/u);
+  assert.match(reviewService, /redirectNewHandle = true/u);
   assert.match(client, /Inventory is managed separately and will not be changed/u);
   assert.match(client, /role="dialog"/u);
   assert.doesNotMatch(client, /window\.confirm/u);

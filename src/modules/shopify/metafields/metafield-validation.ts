@@ -18,6 +18,8 @@ export const metafieldConfigurationInputSchema = z.object({
   fields: z.array(z.object({
     catalogId: z.string(),
     enabled: z.boolean(),
+    namespace: shopifyMetafieldNamespaceSchema.optional(),
+    key: shopifyMetafieldKeySchema.optional(),
   }).strict()).length(SHOPIFY_METAFIELD_CATALOG.length),
 }).strict().superRefine((input, context) => {
   const seen = new Set<string>();

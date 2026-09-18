@@ -6,7 +6,7 @@ import { finding, generationInput, truthFindings } from './fixtures.ts';
 test('fact selection preserves factual boundaries, use targets, variants and regions', () => {
   const facts = [...truthFindings(), finding('material', 'Metal', 'LIKELY'), finding('warranty', 'Five years', 'INSUFFICIENT_EVIDENCE'), finding('regional_variant', 'US', 'VERIFIED', { variantId: 'variant-us' })]; const plan = createListingGenerationPlan(generationInput({ findings: facts }));
   assert.equal(plan.selectedFacts.some(({ fieldId }) => fieldId === 'brand'), true); assert.equal(plan.excludedFacts.some(({ fieldId }) => fieldId === 'material'), true); assert.equal(plan.excludedFacts.some(({ fieldId }) => fieldId === 'warranty'), true);
-  const regional = plan.selectedFacts.find(({ fieldId }) => fieldId === 'regional_variant'); assert.equal(regional?.variantId, 'variant-us'); assert.equal(regional?.productIntelligenceGuidance.regionalSensitivity, true);
+  const regional = plan.excludedFacts.find(({ fieldId }) => fieldId === 'regional_variant'); assert.equal(regional?.variantId, 'variant-us'); assert.equal(regional?.productIntelligenceGuidance.regionalSensitivity, true); assert.equal(plan.reviewRequirements.some(({ metadata }) => metadata.variantScopeSafe === false), true);
   assert.equal(plan.selectedFacts.find(({ fieldId }) => fieldId === 'brand')?.allowedUses.includes('CATALOG_CLASSIFICATION'), true); assert.equal(plan.selectedFacts.every(({ productId }) => productId === plan.productId), true);
 });
 test('conflicted, unresolved, merchant override and AI-only evidence remain traceable', () => {

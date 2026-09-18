@@ -28,7 +28,6 @@ test('loads workspace credentials and decrypts the token only for the request', 
         data: { products: [] },
         status: 200,
         requestId: null,
-        apiCallLimit: null,
       };
     },
   };
@@ -46,14 +45,14 @@ test('loads workspace credentials and decrypts the token only for the request', 
     },
   }, {
     workspaceId: 'workspace-1',
-    request: { path: '/products.json' },
+    request: { path: '/graphql.json' },
   });
 
   assert.equal(requesterToken, 'plaintext-token');
   assert.deepEqual(operations, [
     'credentials:workspace-1',
     'decrypt:encrypted-token',
-    'request:/products.json',
+    'request:/graphql.json',
   ]);
   assert.equal(JSON.stringify(result).includes('plaintext-token'), false);
 });
@@ -73,7 +72,7 @@ test('rejects missing or unusable connected credentials safely', async () => {
       },
     }, {
       workspaceId: 'workspace-1',
-      request: { path: '/products.json' },
+      request: { path: '/graphql.json' },
     }),
     (error: unknown) => {
       assert.ok(error instanceof ShopifyAdminApiError);
@@ -101,7 +100,7 @@ test('rejects missing or unusable connected credentials safely', async () => {
       },
     }, {
       workspaceId: 'workspace-1',
-      request: { path: '/products.json' },
+      request: { path: '/graphql.json' },
     }),
     (error: unknown) => {
       assert.ok(error instanceof ShopifyAdminApiError);
