@@ -1,9 +1,11 @@
 import {
   DuplicateOrganizationSlugError,
+  DuplicateWorkspaceSlugError,
   SettingsForbiddenError,
 } from '../types/errors.ts';
 import {
   organizationUpdateSchema,
+  workspaceCreateSchema,
   workspaceUpdateSchema,
 } from '../validators/settings.ts';
 
@@ -19,6 +21,7 @@ interface WorkspaceRecord {
   id: string;
   organizationId: string;
   name: string;
+  slug: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -87,6 +90,22 @@ export interface TenantSettingsTransaction {
         id: true;
         organizationId: true;
         name: true;
+        slug: true;
+        createdAt: true;
+        updatedAt: true;
+      };
+    }): Promise<WorkspaceRecord>;
+    create(args: {
+      data: {
+        organizationId: string;
+        name: string;
+        slug: string;
+      };
+      select: {
+        id: true;
+        organizationId: true;
+        name: true;
+        slug: true;
         createdAt: true;
         updatedAt: true;
       };
@@ -98,15 +117,83 @@ export interface TenantSettingsTransaction {
         organizationId: string;
         workspaceId?: string;
         userId: string;
-        action: 'organization.updated' | 'workspace.updated';
+        action: 'organization.updated' | 'workspace.updated' | 'workspace.created';
         entityType: 'Organization' | 'Workspace';
         entityId: string;
         metadata: {
-          changedFields: string[];
+          changedFields?: string[];
+          name?: string;
+          slug?: string;
         };
       };
     }): Promise<AuditRecord>;
   };
+}
+
+export async function createWorkspaceWithDatabase(
+  database: TenantSettingsDatabase,
+  actorUserId: string,
+  untrustedInput: unknown,
+): Promise<WorkspaceRecord> {
+  const input = workspaceCreateSchema.parse(untrustedInput);
+
+  try {
+    return await database.$transaction(
+      async (transaction) => {
+        const membership = await transaction.membership.findUnique({
+          where: {
+            userId_organizationId: {
+              userId: actorUserId,
+              organizationId: input.organizationId,
+            },
+          },
+          select: {
+            role: true,
+          },
+        });
+        requireOwner(membership);
+
+        const workspace = await transaction.workspace.create({
+          data: {
+            organizationId: input.organizationId,
+            name: input.name,
+            slug: input.slug,
+          },
+          select: {
+            id: true,
+            organizationId: true,
+            name: true,
+            slug: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        });
+
+        await transaction.auditLog.create({
+          data: {
+            organizationId: workspace.organizationId,
+            workspaceId: workspace.id,
+            userId: actorUserId,
+            action: 'workspace.created',
+            entityType: 'Workspace',
+            entityId: workspace.id,
+            metadata: {
+              name: workspace.name,
+              slug: workspace.slug,
+            },
+          },
+        });
+
+        return workspace;
+      },
+      transactionOptions,
+    );
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      throw new DuplicateWorkspaceSlugError({ cause: error });
+    }
+    throw error;
+  }
 }
 
 export interface TenantSettingsDatabase {
@@ -252,6 +339,7 @@ export async function updateWorkspaceSettingsWithDatabase(
           id: true,
           organizationId: true,
           name: true,
+          slug: true,
           createdAt: true,
           updatedAt: true,
         },

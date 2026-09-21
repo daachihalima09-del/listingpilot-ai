@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  createWorkspaceWithDatabase,
   updateOrganizationSettingsWithDatabase,
   updateWorkspaceSettingsWithDatabase,
   type TenantSettingsDatabase,
@@ -8,6 +9,7 @@ import {
 } from './tenant-settings.ts';
 import {
   DuplicateOrganizationSlugError,
+  DuplicateWorkspaceSlugError,
   SettingsForbiddenError,
 } from '../types/errors.ts';
 
@@ -20,6 +22,7 @@ interface DatabaseOptions {
   membershipRole?: string | null;
   workspaceExists?: boolean;
   organizationUpdateError?: unknown;
+  workspaceCreateError?: unknown;
 }
 
 function createDatabase(options: DatabaseOptions = {}) {
@@ -63,6 +66,21 @@ function createDatabase(options: DatabaseOptions = {}) {
           id: workspaceId,
           organizationId,
           name: args.data.name,
+          slug: 'existing-workspace',
+          createdAt: now,
+          updatedAt: now,
+        };
+      },
+      async create(args) {
+        operations.push({ operation: 'workspace.create', args });
+        if (options.workspaceCreateError) {
+          throw options.workspaceCreateError;
+        }
+        return {
+          id: workspaceId,
+          organizationId: args.data.organizationId,
+          name: args.data.name,
+          slug: args.data.slug,
           createdAt: now,
           updatedAt: now,
         };
@@ -84,6 +102,107 @@ function createDatabase(options: DatabaseOptions = {}) {
 
   return { database, operations };
 }
+
+test('an owner creates exactly one normalized workspace and its audit event atomically', async () => {
+  const { database, operations } = createDatabase();
+  const result = await createWorkspaceWithDatabase(database, actorUserId, {
+    organizationId,
+    name: '  NEOVIX Production  ',
+    slug: '  Neovix-Production  ',
+  });
+
+  assert.equal(result.organizationId, organizationId);
+  assert.equal(result.name, 'NEOVIX Production');
+  assert.equal(result.slug, 'neovix-production');
+  assert.deepEqual(
+    operations.map(({ operation }) => operation),
+    ['membership.findUnique', 'workspace.create', 'auditLog.create'],
+  );
+  assert.deepEqual(
+    (operations[2]?.args as { data: unknown }).data,
+    {
+      organizationId,
+      workspaceId,
+      userId: actorUserId,
+      action: 'workspace.created',
+      entityType: 'Workspace',
+      entityId: workspaceId,
+      metadata: {
+        name: 'NEOVIX Production',
+        slug: 'neovix-production',
+      },
+    },
+  );
+});
+
+for (const role of ['ADMIN', 'MEMBER', 'VIEWER'] as const) {
+  test(`${role} cannot create a workspace`, async () => {
+    const { database, operations } = createDatabase({ membershipRole: role });
+    await assert.rejects(
+      createWorkspaceWithDatabase(database, actorUserId, {
+        organizationId,
+        name: 'NEOVIX Production',
+        slug: 'neovix-production',
+      }),
+      SettingsForbiddenError,
+    );
+    assert.deepEqual(
+      operations.map(({ operation }) => operation),
+      ['membership.findUnique'],
+    );
+  });
+}
+
+test('organization membership is required to create a workspace', async () => {
+  const { database, operations } = createDatabase({ membershipRole: null });
+  await assert.rejects(
+    createWorkspaceWithDatabase(database, actorUserId, {
+      organizationId,
+      name: 'NEOVIX Production',
+      slug: 'neovix-production',
+    }),
+    SettingsForbiddenError,
+  );
+  assert.deepEqual(operations.map(({ operation }) => operation), ['membership.findUnique']);
+});
+
+test('a duplicate workspace slug is safely rejected without an audit event', async () => {
+  const { database, operations } = createDatabase({
+    workspaceCreateError: { code: 'P2002', meta: { target: ['organization_id', 'slug'] } },
+  });
+  await assert.rejects(
+    createWorkspaceWithDatabase(database, actorUserId, {
+      organizationId,
+      name: 'NEOVIX Production',
+      slug: 'neovix-production',
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof DuplicateWorkspaceSlugError);
+      assert.equal(error.statusCode, 409);
+      return true;
+    },
+  );
+  assert.equal(operations.some(({ operation }) => operation === 'auditLog.create'), false);
+});
+
+test('workspace creation does not create child records or modify the historical workspace', async () => {
+  const historicalWorkspace = {
+    id: '96c4788c-4aed-4193-b6c2-86529702887f',
+    name: 'Historical Workspace',
+  };
+  const before = structuredClone(historicalWorkspace);
+  const { database, operations } = createDatabase();
+
+  await createWorkspaceWithDatabase(database, actorUserId, {
+    organizationId,
+    name: 'NEOVIX Production',
+    slug: 'neovix-production',
+  });
+
+  assert.deepEqual(historicalWorkspace, before);
+  assert.equal(operations.some(({ operation }) => operation === 'workspace.update'), false);
+  assert.equal(operations.some(({ operation }) => /shopify|project|product/iu.test(operation)), false);
+});
 
 test('an owner can update an organization and creates the audit event atomically', async () => {
   const { database, operations } = createDatabase();

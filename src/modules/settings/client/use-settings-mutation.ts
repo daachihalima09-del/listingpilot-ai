@@ -38,7 +38,10 @@ function getApiError(body: unknown): SettingsApiErrorBody['error'] {
     : undefined;
 }
 
-export function useSettingsMutation<TResponse>(endpoint: string) {
+export function useSettingsMutation<TResponse>(
+  endpoint: string,
+  method: 'PATCH' | 'POST' = 'PATCH',
+) {
   const [state, setState] = useState<SettingsMutationState>({ status: 'idle' });
   const activeRequest = useRef<AbortController | null>(null);
   const mounted = useRef(true);
@@ -79,7 +82,7 @@ export function useSettingsMutation<TResponse>(endpoint: string) {
 
     try {
       const response = await fetch(endpoint, {
-        method: 'PATCH',
+        method,
         headers: {
           'content-type': 'application/json',
         },
@@ -127,7 +130,7 @@ export function useSettingsMutation<TResponse>(endpoint: string) {
         activeRequest.current = null;
       }
     }
-  }, [endpoint]);
+  }, [endpoint, method]);
 
   return {
     state,

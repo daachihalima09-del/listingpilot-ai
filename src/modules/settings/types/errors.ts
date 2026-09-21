@@ -2,6 +2,7 @@ export const settingsErrorCodes = {
   forbidden: 'SETTINGS_FORBIDDEN',
   notFound: 'SETTINGS_NOT_FOUND',
   duplicateOrganizationSlug: 'SETTINGS_DUPLICATE_ORGANIZATION_SLUG',
+  duplicateWorkspaceSlug: 'SETTINGS_DUPLICATE_WORKSPACE_SLUG',
 } as const;
 
 export type SettingsErrorCode =
@@ -51,5 +52,17 @@ export class DuplicateOrganizationSlugError extends SettingsError {
       options,
     );
     this.name = 'DuplicateOrganizationSlugError';
+  }
+}
+
+export class DuplicateWorkspaceSlugError extends SettingsError {
+  constructor(options?: ErrorOptions) {
+    super(
+      settingsErrorCodes.duplicateWorkspaceSlug,
+      'That workspace slug is already in use in this organization.',
+      409,
+      options,
+    );
+    this.name = 'DuplicateWorkspaceSlugError';
   }
 }

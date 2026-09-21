@@ -2,6 +2,7 @@ import { CalendarDays, ShieldCheck } from 'lucide-react';
 import { notFound } from 'next/navigation';
 import { requireAuthenticatedUser } from '@/modules/auth/server/context';
 import { WorkspaceSettingsForm } from '@/modules/settings/components/WorkspaceSettingsForm';
+import { CreateWorkspaceForm } from '@/modules/settings/components/CreateWorkspaceForm';
 import { getTenantContextForUser } from '@/modules/settings/server/tenant-context';
 import { SettingsError } from '@/modules/settings/types/errors';
 
@@ -86,6 +87,9 @@ export default async function WorkspaceSettingsPage({
         workspace={tenant.workspace}
         canManage={canManage}
       />
+      {canManage ? (
+        <CreateWorkspaceForm organizationId={tenant.organization.id} />
+      ) : null}
     </div>
   );
 }

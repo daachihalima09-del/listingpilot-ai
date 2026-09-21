@@ -30,5 +30,23 @@ export const workspaceUpdateSchema = z.object({
   name: tenantNameSchema,
 }).strict();
 
+const workspaceSlugSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(2, 'Slug must be at least 2 characters.')
+  .max(100, 'Slug must be 100 characters or fewer.')
+  .regex(
+    /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+    'Slug may contain lowercase letters, numbers, and single hyphens.',
+  );
+
+export const workspaceCreateSchema = z.object({
+  organizationId: z.string().uuid('Organization ID is invalid.'),
+  name: tenantNameSchema,
+  slug: workspaceSlugSchema,
+}).strict();
+
 export type OrganizationUpdateInput = z.infer<typeof organizationUpdateSchema>;
 export type WorkspaceUpdateInput = z.infer<typeof workspaceUpdateSchema>;
+export type WorkspaceCreateInput = z.infer<typeof workspaceCreateSchema>;

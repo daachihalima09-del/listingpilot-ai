@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   organizationUpdateSchema,
+  workspaceCreateSchema,
   workspaceUpdateSchema,
 } from './settings.ts';
 
@@ -67,4 +68,28 @@ test('workspace settings validate the identifier and name', () => {
     }).success,
     false,
   );
+});
+
+test('workspace creation normalizes the name and organization-scoped slug', () => {
+  assert.deepEqual(
+    workspaceCreateSchema.parse({
+      organizationId,
+      name: '  NEOVIX Production  ',
+      slug: '  Neovix-Production  ',
+    }),
+    {
+      organizationId,
+      name: 'NEOVIX Production',
+      slug: 'neovix-production',
+    },
+  );
+});
+
+test('workspace creation rejects invalid identifiers, slugs, and extra authority fields', () => {
+  assert.equal(workspaceCreateSchema.safeParse({
+    organizationId: 'not-an-organization',
+    name: 'NEOVIX Production',
+    slug: 'invalid slug',
+    role: 'OWNER',
+  }).success, false);
 });
