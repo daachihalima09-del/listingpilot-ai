@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { Blocks, Boxes, Building2, FileSpreadsheet, FolderKanban, LayoutGrid, PanelLeft, Settings, Sparkles, SquareCheckBig } from 'lucide-react';
 import { usePathname } from 'next/navigation';
+import { TenantAwareLink } from '@/modules/tenancy/components/TenantAwareLink';
 
 const navItems = [
   { label: 'Dashboard', icon: LayoutGrid, href: '/' },
@@ -57,20 +58,20 @@ export function Sidebar() {
             <Settings className="h-3.5 w-3.5" aria-hidden="true" />
             Settings
           </div>
-          <Link
+          <TenantAwareLink
             href="/settings/organization"
             className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-sm text-slate-400 transition hover:bg-white/5 hover:text-slate-100"
           >
             <Building2 className="h-4 w-4" aria-hidden="true" />
             Organization
-          </Link>
-          <Link
+          </TenantAwareLink>
+          <TenantAwareLink
             href="/settings/workspace"
             className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-sm text-slate-400 transition hover:bg-white/5 hover:text-slate-100"
           >
             <Boxes className="h-4 w-4" aria-hidden="true" />
             Workspace
-          </Link>
+          </TenantAwareLink>
         </div>
       </nav>
 

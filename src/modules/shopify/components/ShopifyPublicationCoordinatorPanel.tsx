@@ -10,7 +10,7 @@ import {
   RotateCcw,
   ShoppingBag,
 } from 'lucide-react';
-import Link from 'next/link';
+import { TenantAwareLink } from '@/modules/tenancy/components/TenantAwareLink';
 import { useRef, useState } from 'react';
 import {
   CoordinatorClientError,
@@ -101,9 +101,9 @@ export function ShopifyPublicationCoordinatorPanel({
       {!configured || !connected ? (
         <div className="mt-5 rounded-xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-100">
           Shopify must be configured and connected.{' '}
-          <Link href="/settings/shopify" className="font-semibold underline">
+          <TenantAwareLink href="/settings/shopify" className="font-semibold underline">
             Open Shopify settings
-          </Link>
+          </TenantAwareLink>
         </div>
       ) : !canManage ? (
         <div className="mt-5 rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">

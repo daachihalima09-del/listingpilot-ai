@@ -7,6 +7,11 @@ import {
   businessProfileSettingsRoutes,
   merchantProfileSaveDestination,
 } from './routes.ts';
+import {
+  parseTenantRouteContext,
+  tenantAwarePath,
+  TenantRouteContextError,
+} from '../../tenancy/tenant-route-context.ts';
 
 const root = fileURLToPath(new URL('../../../..', import.meta.url));
 const workspaceId = '11111111-1111-4111-8111-111111111111';
@@ -158,4 +163,44 @@ test('Settings navigation is grouped, exact-active, keyboard accessible and resp
   assert.match(navigation, /sm:grid-cols-3/);
   assert.match(navigation, /focus-visible:ring-2/);
   assert.doesNotMatch(navigation, /startsWith\(`\$\{route\.href\}\//);
+});
+
+test('Settings routes preserve explicit organization and workspace context', () => {
+  const organizationId = '22222222-2222-4222-8222-222222222222';
+  assert.equal(
+    tenantAwarePath('/settings/shopify', { organizationId, workspaceId }),
+    `/settings/shopify?organizationId=${organizationId}&workspaceId=${workspaceId}`,
+  );
+  assert.deepEqual(parseTenantRouteContext({ organizationId, workspaceId }), {
+    organizationId,
+    workspaceId,
+  });
+  assert.throws(
+    () => parseTenantRouteContext({ organizationId: [organizationId] }),
+    TenantRouteContextError,
+  );
+
+  const navigation = readFileSync(
+    `${root}/src/modules/settings/components/SettingsNavigation.tsx`,
+    'utf8',
+  );
+  const projectLayout = readFileSync(`${root}/src/app/projects/layout.tsx`, 'utf8');
+  const sidebar = readFileSync(`${root}/src/components/workspace/Sidebar.tsx`, 'utf8');
+  assert.match(navigation, /TenantAwareLink/);
+  assert.match(projectLayout, /TenantAwareLink/);
+  assert.match(sidebar, /TenantAwareLink/);
+});
+
+test('Shopify Settings and connect requests use the same explicit tenant', () => {
+  const page = readFileSync(`${root}/src/app/settings/shopify/page.tsx`, 'utf8');
+  const panel = readFileSync(
+    `${root}/src/modules/shopify/components/ShopifySettingsPanel.tsx`,
+    'utf8',
+  );
+  const connect = readFileSync(`${root}/src/app/api/shopify/connect/route.ts`, 'utf8');
+  assert.match(page, /parseTenantRouteContext\(query\)/);
+  assert.match(page, /workspaceId: tenant\.workspace\.id/);
+  assert.match(panel, /shop: normalized\.data,[\s\S]*\.\.\.tenantContext/);
+  assert.match(connect, /resolveShopifyConnectTenant/);
+  assert.match(connect, /workspaceId: tenant\.workspace\.id/);
 });

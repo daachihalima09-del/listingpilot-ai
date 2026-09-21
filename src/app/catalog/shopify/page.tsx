@@ -7,6 +7,7 @@ import { listShopifyCatalog } from '@/modules/shopify/catalog/catalog-service';
 import { encodeShopifyProductReference } from '@/modules/shopify/catalog/catalog-validation';
 import { ShopifyCatalogImportButton } from '@/modules/shopify/components/ShopifyCatalogImportButton';
 import { prismaCatalogLinkStore } from '@/modules/shopify/repositories/prisma-catalog-link-store';
+import { TenantAwareLink } from '@/modules/tenancy/components/TenantAwareLink';
 
 interface CatalogPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -46,7 +47,7 @@ export default async function ShopifyCatalogPage({ searchParams }: CatalogPagePr
             <h1 className="mt-2 text-3xl font-semibold">Shopify Catalog</h1>
             <p className="mt-2 text-sm text-slate-400">{context.store.shopName ?? context.store.shopDomain}</p>
           </div>
-          <Link href="/settings/shopify" className="text-sm text-amber-200 hover:underline">Shopify Settings</Link>
+          <TenantAwareLink href="/settings/shopify" className="text-sm text-amber-200 hover:underline">Shopify Settings</TenantAwareLink>
         </header>
 
         <form method="get" className="mt-7 grid gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4 md:grid-cols-6">
@@ -87,6 +88,6 @@ export default async function ShopifyCatalogPage({ searchParams }: CatalogPagePr
     );
   } catch (error) {
     const message = error instanceof ShopifyCatalogError ? error.message : 'The Shopify catalog is temporarily unavailable.';
-    return <div role="alert" className="mx-auto mt-20 max-w-xl rounded-2xl border border-amber-400/20 bg-amber-400/5 p-8"><h1 className="text-2xl font-semibold">Shopify Catalog</h1><p className="mt-3 text-slate-300">{message}</p><div className="mt-5 flex gap-3"><Link href="/settings/shopify" className="rounded-lg bg-amber-400 px-4 py-2 font-semibold text-slate-950">Shopify Settings</Link><Link href="/catalog/shopify" className="rounded-lg border border-white/10 px-4 py-2">Retry</Link></div></div>;
+    return <div role="alert" className="mx-auto mt-20 max-w-xl rounded-2xl border border-amber-400/20 bg-amber-400/5 p-8"><h1 className="text-2xl font-semibold">Shopify Catalog</h1><p className="mt-3 text-slate-300">{message}</p><div className="mt-5 flex gap-3"><TenantAwareLink href="/settings/shopify" className="rounded-lg bg-amber-400 px-4 py-2 font-semibold text-slate-950">Shopify Settings</TenantAwareLink><Link href="/catalog/shopify" className="rounded-lg border border-white/10 px-4 py-2">Retry</Link></div></div>;
   }
 }

@@ -1,4 +1,8 @@
 import type { ShopifyCallbackErrorReason } from '../types/errors.ts';
+import {
+  tenantAwarePath,
+  type TenantRouteContext,
+} from '../../tenancy/tenant-route-context.ts';
 
 export function shopifyCallbackSuccessUrl(
   appUrl: string,
@@ -15,8 +19,12 @@ export function shopifyCallbackSuccessUrl(
 export function shopifyCallbackErrorUrl(
   appUrl: string,
   reason: ShopifyCallbackErrorReason,
+  tenantContext: TenantRouteContext = {},
 ): URL {
-  const url = new URL('/settings/shopify', appUrl);
-  url.searchParams.set('error', reason);
+  const url = new URL(tenantAwarePath(
+    '/settings/shopify',
+    tenantContext,
+    { error: reason },
+  ), appUrl);
   return url;
 }

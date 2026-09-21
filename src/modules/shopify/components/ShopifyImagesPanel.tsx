@@ -10,7 +10,7 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import Link from 'next/link';
+import { TenantAwareLink } from '@/modules/tenancy/components/TenantAwareLink';
 import { useEffect, useRef, useState } from 'react';
 import type {
   ShopifyImageConfigurationDto,
@@ -247,7 +247,7 @@ export function ShopifyImagesPanel({
       {!configured || !connected ? (
         <div className="mt-5 rounded-xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-100">
           You can organize Product images now. Connect Shopify when you are ready to publish them.{' '}
-          <Link href="/settings/shopify" className="font-semibold underline">Open settings</Link>
+          <TenantAwareLink href="/settings/shopify" className="font-semibold underline">Open settings</TenantAwareLink>
         </div>
       ) : !canManage ? (
         <div className="mt-5 rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">

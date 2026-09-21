@@ -1261,7 +1261,15 @@ export function ListingWorkspace({
               >
                 Saved Projects
               </Link>
-              <Link href="/settings/organization" className="rounded-full px-3 py-2 transition hover:bg-white/10 hover:text-white">
+              <Link
+                href={initialProject
+                  ? `/settings/organization?${new URLSearchParams({
+                      organizationId: initialProject.organizationId,
+                      workspaceId: initialProject.workspaceId,
+                    })}`
+                  : '/settings/organization'}
+                className="rounded-full px-3 py-2 transition hover:bg-white/10 hover:text-white"
+              >
                 Settings
               </Link>
               {initialProject ? (

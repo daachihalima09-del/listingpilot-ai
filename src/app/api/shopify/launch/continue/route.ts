@@ -23,6 +23,7 @@ import { prismaShopifyLaunchIntentStore } from '@/modules/shopify/repositories/p
 import { prismaShopifyLaunchWorkspaceStore } from '@/modules/shopify/repositories/prisma-launch-workspace-store';
 import { createShopifyOAuthState } from '@/modules/shopify/repositories/oauth-state-repository';
 import { returnPathAfterShopifyConnection } from '@/modules/onboarding/catalog-profile/onboarding-gate.server';
+import { tenantAwarePath } from '@/modules/tenancy/tenant-route-context';
 
 const continueSchema = z.object({
   intent: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
@@ -137,7 +138,10 @@ export async function POST(request: Request): Promise<NextResponse> {
       });
       const returnPath = await returnPathAfterShopifyConnection(
         workspace.id,
-        intent.safeReturnPath ?? '/settings/shopify',
+        tenantAwarePath(intent.safeReturnPath ?? '/settings/shopify', {
+          organizationId: workspace.organizationId,
+          workspaceId: workspace.id,
+        }),
       );
       return NextResponse.redirect(
         new URL(returnPath, config.appUrl),

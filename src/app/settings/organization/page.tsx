@@ -4,10 +4,15 @@ import { requireAuthenticatedUser } from '@/modules/auth/server/context';
 import { OrganizationSettingsForm } from '@/modules/settings/components/OrganizationSettingsForm';
 import { getTenantContextForUser } from '@/modules/settings/server/tenant-context';
 import { SettingsError } from '@/modules/settings/types/errors';
+import {
+  parseTenantRouteContext,
+  TenantRouteContextError,
+} from '@/modules/tenancy/tenant-route-context';
 
 interface OrganizationSettingsPageProps {
   searchParams: Promise<{
     organizationId?: string | string[];
+    workspaceId?: string | string[];
   }>;
 }
 
@@ -23,15 +28,15 @@ export default async function OrganizationSettingsPage({
 }: OrganizationSettingsPageProps) {
   const user = await requireAuthenticatedUser();
   const query = await searchParams;
-  const organizationId = typeof query.organizationId === 'string'
-    ? query.organizationId
-    : undefined;
 
   let tenant;
   try {
-    tenant = await getTenantContextForUser(user.id, { organizationId });
+    tenant = await getTenantContextForUser(
+      user.id,
+      parseTenantRouteContext(query),
+    );
   } catch (error) {
-    if (error instanceof SettingsError) {
+    if (error instanceof SettingsError || error instanceof TenantRouteContextError) {
       notFound();
     }
     throw error;

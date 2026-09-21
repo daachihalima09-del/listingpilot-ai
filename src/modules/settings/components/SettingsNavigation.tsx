@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Boxes,
@@ -18,6 +17,7 @@ import {
   businessProfileSettingsRoutes,
   type BusinessProfileSettingsRouteId,
 } from '@/modules/settings/business-profile/routes';
+import { TenantAwareLink } from '@/modules/tenancy/components/TenantAwareLink';
 
 const settingsLinks = [
   {
@@ -68,7 +68,7 @@ export function SettingsNavigation() {
           {settingsLinks.map(({ href, label, icon: Icon }) => {
             const isActive = pathname === href;
             return (
-              <Link
+              <TenantAwareLink
                 key={href}
                 href={href}
                 aria-current={isActive ? 'page' : undefined}
@@ -76,7 +76,7 @@ export function SettingsNavigation() {
               >
                 <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
                 <span className="min-w-0 leading-5">{label}</span>
-              </Link>
+              </TenantAwareLink>
             );
           })}
         </div>
@@ -92,7 +92,7 @@ export function SettingsNavigation() {
             const isActive = pathname === route.href;
             const advanced = 'advanced' in route && route.advanced;
             return (
-              <Link
+              <TenantAwareLink
                 key={route.href}
                 href={route.href}
                 aria-current={isActive ? 'page' : undefined}
@@ -107,7 +107,7 @@ export function SettingsNavigation() {
                     </span>
                   ) : null}
                 </span>
-              </Link>
+              </TenantAwareLink>
             );
           })}
         </div>

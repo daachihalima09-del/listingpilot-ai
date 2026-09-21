@@ -10,6 +10,7 @@ import {
   shopifyCallbackErrorUrl,
   shopifyCallbackSuccessUrl,
 } from '@/modules/shopify/oauth/callback-redirect';
+import { resolveShopifyCallbackReturnContext } from '@/modules/shopify/oauth/callback-return-context';
 import {
   exchangeShopifyAuthorizationCode,
   verifyShopifyShop,
@@ -36,6 +37,7 @@ import { prismaShopifyLaunchIntentStore } from '@/modules/shopify/repositories/p
 import { getTenantContextForUser } from '@/modules/tenancy/server/tenant-context';
 import { ShopifyCallbackError } from '@/modules/shopify/types/errors';
 import { returnPathAfterShopifyConnection } from '@/modules/onboarding/catalog-profile/onboarding-gate.server';
+import { tenantAwarePath } from '@/modules/tenancy/tenant-route-context';
 
 function clearStateCookie(response: NextResponse): void {
   response.cookies.set(
@@ -47,6 +49,10 @@ function clearStateCookie(response: NextResponse): void {
 
 export async function GET(request: Request): Promise<NextResponse> {
   let appUrl = process.env.AUTH_URL ?? 'http://localhost:3000';
+  let errorTenantContext: {
+    organizationId: string;
+    workspaceId: string;
+  } | null = null;
   try {
     const config = getShopifyConfig();
     appUrl = config.appUrl;
@@ -85,6 +91,14 @@ export async function GET(request: Request): Promise<NextResponse> {
       .map((cookie) => cookie.trim())
       .find((cookie) => cookie.startsWith(`${shopifyOAuthStateCookieName()}=`))
       ?.slice(shopifyOAuthStateCookieName().length + 1);
+    errorTenantContext = await resolveShopifyCallbackReturnContext(
+      dependencies,
+      {
+        requestUrl: request.url,
+        cookieState: cookieState ? decodeURIComponent(cookieState) : undefined,
+        actorUserId: user.id,
+      },
+    );
     const result = await completeShopifyOAuthCallback(dependencies, config, {
       requestUrl: request.url,
       cookieState: cookieState ? decodeURIComponent(cookieState) : undefined,
@@ -99,7 +113,10 @@ export async function GET(request: Request): Promise<NextResponse> {
       : '/settings/shopify';
     const safeReturnPath = await returnPathAfterShopifyConnection(
       result.workspaceId,
-      completedProfileReturnPath,
+      tenantAwarePath(completedProfileReturnPath, {
+        organizationId: result.organizationId,
+        workspaceId: result.workspaceId,
+      }),
     );
     if (result.launchIntentId) {
       await recordShopifyLaunchAuditSafely({
@@ -119,7 +136,11 @@ export async function GET(request: Request): Promise<NextResponse> {
       ? error.reason
       : 'connection_failed';
     const response = NextResponse.redirect(
-      shopifyCallbackErrorUrl(appUrl, reason),
+      shopifyCallbackErrorUrl(
+        appUrl,
+        reason,
+        errorTenantContext ?? undefined,
+      ),
     );
     clearStateCookie(response);
     return response;

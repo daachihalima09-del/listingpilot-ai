@@ -72,6 +72,7 @@ export async function completeShopifyOAuthCallback(
   },
 ): Promise<{
   shopDomain: string;
+  organizationId: string;
   workspaceId: string;
   launchIntentId: string | null;
 }> {
@@ -132,6 +133,7 @@ export async function completeShopifyOAuthCallback(
     });
     return {
       shopDomain: shop.shopDomain,
+      organizationId: tenant.organizationId,
       workspaceId: tenant.workspaceId,
       launchIntentId: state.launchIntentId ?? null,
     };

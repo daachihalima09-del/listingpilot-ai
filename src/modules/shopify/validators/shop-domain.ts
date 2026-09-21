@@ -71,8 +71,19 @@ export function normalizeShopDomain(value: string): string {
   return shopDomainSchema.parse(value);
 }
 
-export const shopifyConnectInputSchema = z.object({
+const legacyShopifyConnectInputSchema = z.object({
   shop: shopDomainSchema,
 }).strict();
+
+const scopedShopifyConnectInputSchema = z.object({
+  shop: shopDomainSchema,
+  organizationId: z.string().uuid(),
+  workspaceId: z.string().uuid(),
+}).strict();
+
+export const shopifyConnectInputSchema = z.union([
+  scopedShopifyConnectInputSchema,
+  legacyShopifyConnectInputSchema,
+]);
 
 export type ShopifyConnectInput = z.infer<typeof shopifyConnectInputSchema>;

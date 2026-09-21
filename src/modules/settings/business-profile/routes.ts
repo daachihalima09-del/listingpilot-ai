@@ -46,16 +46,23 @@ const settingsPathBySection = Object.fromEntries(
   businessProfileSettingsRoutes.map(({ id, href }) => [id, href]),
 ) as Record<BusinessProfileSettingsRouteId, string>;
 
-function withWorkspace(path: string, workspaceId: string): string {
-  return `${path}?${new URLSearchParams({ workspaceId })}`;
+function withWorkspace(
+  path: string,
+  workspaceId: string,
+  organizationId?: string,
+): string {
+  const search = new URLSearchParams({ workspaceId });
+  if (organizationId) search.set('organizationId', organizationId);
+  return `${path}?${search}`;
 }
 
 export function businessProfileSettingsPath(
   section: BusinessProfileSettingsRouteId,
   workspaceId?: string,
+  organizationId?: string,
 ): string {
   const path = settingsPathBySection[section];
-  return workspaceId ? withWorkspace(path, workspaceId) : path;
+  return workspaceId ? withWorkspace(path, workspaceId, organizationId) : path;
 }
 
 export function merchantProfileSaveDestination(input: {
@@ -68,7 +75,11 @@ export function merchantProfileSaveDestination(input: {
     const target = input.section === 'listing-standard'
       ? 'listing'
       : input.section;
-    return businessProfileSettingsPath(target, input.workspaceId);
+    return businessProfileSettingsPath(
+      target,
+      input.workspaceId,
+      input.organizationId,
+    );
   }
 
   if (input.section === 'listing-standard') {

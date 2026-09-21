@@ -1,7 +1,7 @@
-import Link from 'next/link';
 import { ArrowLeft, Settings, Sparkles } from 'lucide-react';
 import { SignOutButton } from '@/components/auth/SignOutButton';
 import { SettingsNavigation } from '@/modules/settings/components/SettingsNavigation';
+import { TenantAwareLink } from '@/modules/tenancy/components/TenantAwareLink';
 
 export default function SettingsLayout({
   children,
@@ -13,7 +13,7 @@ export default function SettingsLayout({
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_8%,rgba(245,185,66,0.12),transparent_32%),radial-gradient(circle_at_88%_75%,rgba(56,189,248,0.07),transparent_35%)]" />
       <div className="relative mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
         <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/5 px-5 py-4 backdrop-blur">
-          <Link
+          <TenantAwareLink
             href="/"
             className="inline-flex items-center gap-3 rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
           >
@@ -24,15 +24,15 @@ export default function SettingsLayout({
               <span className="block text-sm font-semibold tracking-[0.18em]">LISTINGPILOT AI</span>
               <span className="block text-xs uppercase tracking-[0.18em] text-slate-500">Settings</span>
             </span>
-          </Link>
+          </TenantAwareLink>
           <div className="flex items-center gap-2">
-            <Link
-              href="/"
+            <TenantAwareLink
+              href="/projects"
               className="inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm text-slate-300 transition hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
             >
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
               Dashboard
-            </Link>
+            </TenantAwareLink>
             <SignOutButton />
           </div>
         </header>

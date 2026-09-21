@@ -11,6 +11,7 @@ export const metadata: Metadata = {
 interface Props {
   searchParams: Promise<{
     fixtureId?: string | string[];
+    organizationId?: string | string[];
     workspaceId?: string | string[];
   }>;
 }

@@ -19,11 +19,15 @@ export default async function ListingStyleSettingsPage({
 }: {
   searchParams: Promise<BusinessProfileSettingsSearchParams>;
 }) {
-  const { user, workspace } = await resolveBusinessProfileSettingsTenant(searchParams);
+  const { user, tenant, workspace } = await resolveBusinessProfileSettingsTenant(searchParams);
   const access = await resolveMerchantListingProfileAccess(user.id, workspace.id);
   const profile = await getMerchantListingProfile(access.workspaceId);
   if (!profile) {
-    redirect(businessProfileSettingsPath('listing-standard', access.workspaceId));
+    redirect(businessProfileSettingsPath(
+      'listing-standard',
+      access.workspaceId,
+      tenant.organization.id,
+    ));
   }
 
   return (

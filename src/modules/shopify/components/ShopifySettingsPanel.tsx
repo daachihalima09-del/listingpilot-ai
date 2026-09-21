@@ -46,11 +46,16 @@ export function ShopifySettingsPanel({
   connection,
   viewState,
   initialNotice,
+  tenantContext,
 }: {
   configured: boolean;
   connection: ShopifyConnectionStatusDto;
   viewState: ShopifySettingsViewState;
   initialNotice: Notice | null;
+  tenantContext: {
+    organizationId: string;
+    workspaceId: string;
+  };
 }) {
   const [shop, setShop] = useState(connection.shopDomain ?? '');
   const [isConnecting, setIsConnecting] = useState(false);
@@ -74,7 +79,10 @@ export function ShopifySettingsPanel({
       const response = await fetch('/api/shopify/connect', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ shop: normalized.data }),
+        body: JSON.stringify({
+          shop: normalized.data,
+          ...tenantContext,
+        }),
       });
       const payload = await response.json() as {
         authorizationUrl?: unknown;
@@ -118,7 +126,7 @@ export function ShopifySettingsPanel({
       const response = await fetch('/api/shopify/disconnect', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ confirm: true }),
+        body: JSON.stringify({ confirm: true, ...tenantContext }),
       });
       if (!response.ok) {
         setFeedback({
@@ -127,7 +135,10 @@ export function ShopifySettingsPanel({
         });
         return;
       }
-      window.location.assign('/settings/shopify?status=disconnected');
+      window.location.assign(`/settings/shopify?${new URLSearchParams({
+        ...tenantContext,
+        status: 'disconnected',
+      })}`);
     } catch {
       setFeedback({
         tone: 'error',

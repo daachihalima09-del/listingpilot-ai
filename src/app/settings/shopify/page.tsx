@@ -10,11 +10,18 @@ import {
   getShopifySettingsViewState,
 } from '@/modules/shopify/settings/settings-view';
 import { getTenantContextForUser } from '@/modules/tenancy/server/tenant-context';
+import { TenantAccessError } from '@/modules/tenancy/server/tenant-context';
+import {
+  parseTenantRouteContext,
+  TenantRouteContextError,
+} from '@/modules/tenancy/tenant-route-context';
 
 interface ShopifySettingsPageProps {
   searchParams: Promise<{
     status?: string | string[];
     error?: string | string[];
+    organizationId?: string | string[];
+    workspaceId?: string | string[];
   }>;
 }
 
@@ -22,7 +29,19 @@ export default async function ShopifySettingsPage({
   searchParams,
 }: ShopifySettingsPageProps) {
   const user = await requireAuthenticatedUser();
-  const tenant = await getTenantContextForUser(user.id);
+  const query = await searchParams;
+  let tenant;
+  try {
+    tenant = await getTenantContextForUser(
+      user.id,
+      parseTenantRouteContext(query),
+    );
+  } catch (error) {
+    if (error instanceof TenantAccessError || error instanceof TenantRouteContextError) {
+      notFound();
+    }
+    throw error;
+  }
   if (!tenant.workspace) notFound();
 
   const configured = hasValidShopifyConfig();
@@ -35,7 +54,6 @@ export default async function ShopifySettingsPage({
       role: tenant.role,
     },
   );
-  const query = await searchParams;
   const notice = getShopifySettingsNotice({
     status: typeof query.status === 'string' ? query.status : undefined,
     error: typeof query.error === 'string' ? query.error : undefined,
@@ -66,6 +84,10 @@ export default async function ShopifySettingsPage({
           connection={connection}
           viewState={getShopifySettingsViewState(configured, connection)}
           initialNotice={notice}
+          tenantContext={{
+            organizationId: tenant.organization.id,
+            workspaceId: tenant.workspace.id,
+          }}
         />
       </div>
     </div>

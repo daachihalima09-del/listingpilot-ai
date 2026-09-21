@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { FolderKanban, Sparkles } from 'lucide-react';
 import { SignOutButton } from '@/components/auth/SignOutButton';
 import { Sidebar } from '@/components/workspace/Sidebar';
+import { TenantAwareLink } from '@/modules/tenancy/components/TenantAwareLink';
 
 export default function ProjectsLayout({
   children,
@@ -30,12 +31,12 @@ export default function ProjectsLayout({
               </span>
             </Link>
             <nav className="flex items-center gap-2">
-              <Link
+              <TenantAwareLink
                 href="/settings/organization"
                 className="rounded-full px-3 py-2 text-sm text-slate-300 transition hover:bg-white/10 hover:text-white"
               >
                 Settings
-              </Link>
+              </TenantAwareLink>
               <SignOutButton />
             </nav>
           </header>

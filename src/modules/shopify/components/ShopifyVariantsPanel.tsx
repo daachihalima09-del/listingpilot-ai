@@ -8,7 +8,7 @@ import {
   Save,
   Trash2,
 } from 'lucide-react';
-import Link from 'next/link';
+import { TenantAwareLink } from '@/modules/tenancy/components/TenantAwareLink';
 import { useMemo, useRef, useState } from 'react';
 import {
   findNextAvailableCombination,
@@ -318,9 +318,9 @@ export function ShopifyVariantsPanel({
       {viewState === 'CONFIGURATION_MISSING' || viewState === 'NOT_CONNECTED' ? (
         <div className="mt-5 rounded-xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-100">
           Shopify must be configured and connected before variants can be managed.{' '}
-          <Link href="/settings/shopify" className="font-semibold underline underline-offset-4">
+          <TenantAwareLink href="/settings/shopify" className="font-semibold underline underline-offset-4">
             Open Shopify settings
-          </Link>
+          </TenantAwareLink>
         </div>
       ) : viewState === 'PRODUCT_NOT_PUBLISHED' ? (
         <div className="mt-5 rounded-xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-100">

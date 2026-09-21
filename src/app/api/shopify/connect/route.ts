@@ -13,31 +13,29 @@ import {
   readShopifyConnectRequestBody,
   shopifyRouteErrorResponse,
 } from '@/modules/shopify/server/route-helpers';
-import {
-  ShopifyForbiddenError,
-  ShopifyUnauthenticatedError,
-} from '@/modules/shopify/types/errors';
+import { ShopifyUnauthenticatedError } from '@/modules/shopify/types/errors';
 import { shopifyConnectInputSchema } from '@/modules/shopify/validators/shop-domain';
 import { getTenantContextForUser } from '@/modules/tenancy/server/tenant-context';
+import { resolveShopifyConnectTenant } from '@/modules/shopify/services/connect-authorization';
 
 export async function POST(request: Request): Promise<NextResponse> {
   const user = await getCurrentUser();
-  if (!user) {
+  if (!user || user.status !== 'ACTIVE') {
     return shopifyRouteErrorResponse(new ShopifyUnauthenticatedError());
   }
 
   try {
     const body = await readShopifyConnectRequestBody(request);
     const input = shopifyConnectInputSchema.parse(body);
-    let tenant;
-    try {
-      tenant = await getTenantContextForUser(user.id);
-    } catch {
-      throw new ShopifyForbiddenError();
-    }
-    if (tenant.role !== 'OWNER' || !tenant.workspace) {
-      throw new ShopifyForbiddenError();
-    }
+    const selection = 'workspaceId' in input
+      ? {
+          organizationId: input.organizationId,
+          workspaceId: input.workspaceId,
+        }
+      : {};
+    const tenant = await resolveShopifyConnectTenant({
+      findForUser: getTenantContextForUser,
+    }, user.id, selection);
 
     const state = generateShopifyOAuthState();
     const authorizationUrl = buildShopifyAuthorizationUrl(

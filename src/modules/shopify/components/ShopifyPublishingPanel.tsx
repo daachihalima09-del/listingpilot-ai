@@ -7,7 +7,7 @@ import {
   LoaderCircle,
   ShoppingBag,
 } from 'lucide-react';
-import Link from 'next/link';
+import { TenantAwareLink } from '@/modules/tenancy/components/TenantAwareLink';
 import { useMemo, useRef, useState } from 'react';
 import {
   DEFAULT_SHOPIFY_PUBLISH_STATUS,
@@ -215,9 +215,9 @@ export function ShopifyPublishingPanel({
       {availability === 'NOT_CONNECTED' && (
         <div className="mt-5 rounded-xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-100">
           <p>No Shopify store is connected to this workspace.</p>
-          <Link href="/settings/shopify" className="mt-2 inline-block font-semibold underline underline-offset-4">
+          <TenantAwareLink href="/settings/shopify" className="mt-2 inline-block font-semibold underline underline-offset-4">
             Open Shopify settings
-          </Link>
+          </TenantAwareLink>
         </div>
       )}
 

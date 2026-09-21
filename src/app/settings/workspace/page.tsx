@@ -5,6 +5,10 @@ import { WorkspaceSettingsForm } from '@/modules/settings/components/WorkspaceSe
 import { CreateWorkspaceForm } from '@/modules/settings/components/CreateWorkspaceForm';
 import { getTenantContextForUser } from '@/modules/settings/server/tenant-context';
 import { SettingsError } from '@/modules/settings/types/errors';
+import {
+  parseTenantRouteContext,
+  TenantRouteContextError,
+} from '@/modules/tenancy/tenant-route-context';
 
 interface WorkspaceSettingsPageProps {
   searchParams: Promise<{
@@ -25,21 +29,14 @@ export default async function WorkspaceSettingsPage({
 }: WorkspaceSettingsPageProps) {
   const user = await requireAuthenticatedUser();
   const query = await searchParams;
-  const organizationId = typeof query.organizationId === 'string'
-    ? query.organizationId
-    : undefined;
-  const workspaceId = typeof query.workspaceId === 'string'
-    ? query.workspaceId
-    : undefined;
-
   let tenant;
   try {
-    tenant = await getTenantContextForUser(user.id, {
-      organizationId,
-      workspaceId,
-    });
+    tenant = await getTenantContextForUser(
+      user.id,
+      parseTenantRouteContext(query),
+    );
   } catch (error) {
-    if (error instanceof SettingsError) {
+    if (error instanceof SettingsError || error instanceof TenantRouteContextError) {
       notFound();
     }
     throw error;

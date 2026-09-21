@@ -13,6 +13,7 @@ import {
 import { buildShopifyHmacMessage } from './hmac.ts';
 import { hashShopifyOAuthState } from './state.ts';
 import { ShopifyCallbackError } from '../types/errors.ts';
+import { resolveShopifyCallbackReturnContext } from './callback-return-context.ts';
 
 const state = 's'.repeat(43);
 const now = new Date('2026-07-25T12:00:00.000Z');
@@ -25,10 +26,10 @@ const config: ShopifyConfig = {
   tokenEncryptionKey: Buffer.alloc(32).toString('base64'),
 };
 
-function callbackUrl(): string {
+function callbackUrl(shop = 'example.myshopify.com'): string {
   const parameters = new URLSearchParams({
     code: 'authorization-code',
-    shop: 'example.myshopify.com',
+    shop,
     state,
     timestamp: String(Math.floor(now.getTime() / 1_000)),
   });
@@ -98,6 +99,7 @@ test('completes the verified callback in security order', async () => {
     now,
   });
   assert.equal(result.shopDomain, 'example.myshopify.com');
+  assert.equal(result.organizationId, 'organization-1');
   assert.equal(result.workspaceId, 'workspace-1');
   assert.deepEqual(context.events, [
     'state-consumed',
@@ -106,6 +108,25 @@ test('completes the verified callback in security order', async () => {
     'token-encrypted',
     'connection-persisted',
   ]);
+});
+
+test('rejects a returning shop mismatch before token exchange or persistence', async () => {
+  const context = dependencies();
+  await assert.rejects(
+    completeShopifyOAuthCallback(context.value, config, {
+      requestUrl: callbackUrl('different.myshopify.com'),
+      cookieState: state,
+      actorUserId: 'user-1',
+      now,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ShopifyCallbackError);
+      assert.equal(error.reason, 'shop_mismatch');
+      return true;
+    },
+  );
+  assert.deepEqual(context.events, []);
+  assert.equal(context.getStoredToken(), 'encrypted-old-token');
 });
 
 test('failed reconnect verification preserves the existing token and audits safely', async () => {
@@ -162,7 +183,31 @@ test('builds only server-controlled success and error redirects', () => {
     'https://app.example/settings/shopify?status=connected',
   );
   assert.equal(
-    shopifyCallbackErrorUrl(config.appUrl, 'invalid_state').toString(),
-    'https://app.example/settings/shopify?error=invalid_state',
+    shopifyCallbackErrorUrl(config.appUrl, 'invalid_state', {
+      organizationId: 'organization-1',
+      workspaceId: 'workspace-1',
+    }).toString(),
+    'https://app.example/settings/shopify?organizationId=organization-1&workspaceId=workspace-1&error=invalid_state',
   );
+});
+
+test('recovers a callback tenant only from matching cookie, state, user and owner workspace', async () => {
+  const context = dependencies();
+  const returnContext = await resolveShopifyCallbackReturnContext(
+    context.value,
+    {
+      requestUrl: callbackUrl(),
+      cookieState: state,
+      actorUserId: 'user-1',
+    },
+  );
+  assert.deepEqual(returnContext, {
+    organizationId: 'organization-1',
+    workspaceId: 'workspace-1',
+  });
+  assert.equal(await resolveShopifyCallbackReturnContext(context.value, {
+    requestUrl: callbackUrl(),
+    cookieState: 'x'.repeat(43),
+    actorUserId: 'user-1',
+  }), null);
 });

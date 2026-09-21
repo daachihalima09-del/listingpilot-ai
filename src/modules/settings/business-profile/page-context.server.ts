@@ -6,8 +6,13 @@ import {
   getTenantContextForUser,
   TenantAccessError,
 } from '@/modules/tenancy/server/tenant-context';
+import {
+  parseTenantRouteContext,
+  TenantRouteContextError,
+} from '@/modules/tenancy/tenant-route-context';
 
 export interface BusinessProfileSettingsSearchParams {
+  organizationId?: string | string[];
   workspaceId?: string | string[];
 }
 
@@ -16,19 +21,15 @@ export async function resolveBusinessProfileSettingsTenant(
 ) {
   const user = await requireAuthenticatedUser();
   const parameters = await searchParams;
-  const workspaceId = typeof parameters.workspaceId === 'string'
-    ? parameters.workspaceId
-    : undefined;
-
   try {
     const tenant = await getTenantContextForUser(
       user.id,
-      workspaceId ? { workspaceId } : {},
+      parseTenantRouteContext(parameters),
     );
     if (!tenant.workspace) notFound();
     return { user, tenant, workspace: tenant.workspace };
   } catch (error) {
-    if (error instanceof TenantAccessError) notFound();
+    if (error instanceof TenantAccessError || error instanceof TenantRouteContextError) notFound();
     throw error;
   }
 }

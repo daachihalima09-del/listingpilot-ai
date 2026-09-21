@@ -45,6 +45,15 @@ test('connect input accepts only a shop domain resolved through existing normali
   assert.deepEqual(shopifyConnectInputSchema.parse({ shop: 'Sample-Store' }), {
     shop: 'sample-store.myshopify.com',
   });
+  assert.deepEqual(shopifyConnectInputSchema.parse({
+    shop: 'sample-store',
+    workspaceId: '11111111-1111-4111-8111-111111111111',
+    organizationId: '22222222-2222-4222-8222-222222222222',
+  }), {
+    shop: 'sample-store.myshopify.com',
+    workspaceId: '11111111-1111-4111-8111-111111111111',
+    organizationId: '22222222-2222-4222-8222-222222222222',
+  });
   assert.equal(shopifyConnectInputSchema.safeParse({
     shop: 'sample-store',
     workspaceId: '11111111-1111-4111-8111-111111111111',
