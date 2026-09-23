@@ -13,6 +13,7 @@ import {
 import { resolveShopifyCallbackReturnContext } from '@/modules/shopify/oauth/callback-return-context';
 import {
   exchangeShopifyAuthorizationCode,
+  fetchShopifyGrantedScopes,
   verifyShopifyShop,
 } from '@/modules/shopify/oauth/shopify-client';
 import {
@@ -77,6 +78,7 @@ export async function GET(request: Request): Promise<NextResponse> {
         }
       },
       exchangeCode: (input) => exchangeShopifyAuthorizationCode(config, input),
+      fetchGrantedScopes: (input) => fetchShopifyGrantedScopes(config, input),
       verifyShop: (input) => verifyShopifyShop(config, input),
       encryptToken: (token) => encryptShopifyAccessToken(
         token,

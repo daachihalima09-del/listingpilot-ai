@@ -7,6 +7,7 @@ import {
 } from './state.ts';
 import { parseShopifyCallbackQuery } from './callback-query.ts';
 import { verifyShopifyOAuthHmac } from './hmac.ts';
+import { evaluateShopifyScopeCapabilities } from './scope-capabilities.ts';
 
 interface StateRecord extends ShopifyOAuthStateBinding {
   id: string;
@@ -36,6 +37,10 @@ export interface ShopifyCallbackDependencies {
     shopDomain: string;
     code: string;
   }): Promise<TokenResult>;
+  fetchGrantedScopes(input: {
+    shopDomain: string;
+    accessToken: string;
+  }): Promise<string[]>;
   verifyShop(input: {
     shopDomain: string;
     accessToken: string;
@@ -111,8 +116,22 @@ export async function completeShopifyOAuthCallback(
       shopDomain: query.shop,
       code: query.code,
     });
-    const grantedScopes = new Set(token.grantedScopes);
-    if (config.scopes.some((scope) => !grantedScopes.has(scope))) {
+    const tokenScopeCapabilities = evaluateShopifyScopeCapabilities({
+      requiredScopes: config.scopes,
+      grantedScopes: token.grantedScopes,
+    });
+    if (!tokenScopeCapabilities.satisfied) {
+      throw new ShopifyCallbackError('connection_failed', 'missing_scopes');
+    }
+    const authenticatedGrantedScopes = await dependencies.fetchGrantedScopes({
+      shopDomain: query.shop,
+      accessToken: token.accessToken,
+    });
+    const authenticatedScopeCapabilities = evaluateShopifyScopeCapabilities({
+      requiredScopes: config.scopes,
+      grantedScopes: authenticatedGrantedScopes,
+    });
+    if (!authenticatedScopeCapabilities.satisfied) {
       throw new ShopifyCallbackError('connection_failed', 'missing_scopes');
     }
     const shop = await dependencies.verifyShop({
@@ -128,7 +147,7 @@ export async function completeShopifyOAuthCallback(
       shopName: shop.name,
       accessTokenEncrypted: encryptedToken,
       requestedScopes: config.scopes,
-      grantedScopes: token.grantedScopes,
+      grantedScopes: authenticatedGrantedScopes,
       verifiedAt: now,
     });
     return {

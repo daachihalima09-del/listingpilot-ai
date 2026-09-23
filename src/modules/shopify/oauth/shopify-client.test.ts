@@ -4,6 +4,7 @@ import type { ShopifyConfig } from '../config.ts';
 import { ShopifyCallbackError } from '../types/errors.ts';
 import {
   exchangeShopifyAuthorizationCode,
+  fetchShopifyGrantedScopes,
   verifyShopifyShop,
 } from './shopify-client.ts';
 
@@ -105,6 +106,50 @@ test('fails safely for expired tokens and GraphQL errors', async () => {
       verifyShopifyShop(config, {
         shopDomain: 'example.myshopify.com',
         accessToken: 'token',
+      }, mockFetch(response)),
+      ShopifyCallbackError,
+    );
+  }
+});
+
+test('reads authenticated installation scopes without exposing the token', async () => {
+  let requestedBody = '';
+  const scopes = await fetchShopifyGrantedScopes(config, {
+    shopDomain: 'example.myshopify.com',
+    accessToken: 'temporary-token',
+  }, async (_input, init) => {
+    requestedBody = String(init?.body);
+    assert.equal(
+      (init?.headers as Record<string, string>)['X-Shopify-Access-Token'],
+      'temporary-token',
+    );
+    return Response.json({
+      data: {
+        currentAppInstallation: {
+          accessScopes: [
+            { handle: 'write_products' },
+            { handle: 'write_files' },
+            { handle: 'write_products' },
+          ],
+        },
+      },
+    });
+  });
+  assert.deepEqual(scopes, ['write_products', 'write_files']);
+  assert.match(requestedBody, /currentAppInstallation/u);
+  assert.equal(requestedBody.includes('temporary-token'), false);
+});
+
+test('fails safely when authenticated installation scopes cannot be verified', async () => {
+  for (const response of [
+    Response.json({ errors: [{ message: 'Access denied' }] }),
+    Response.json({ data: {} }),
+    new Response('denied', { status: 401 }),
+  ]) {
+    await assert.rejects(
+      fetchShopifyGrantedScopes(config, {
+        shopDomain: 'example.myshopify.com',
+        accessToken: 'temporary-token',
       }, mockFetch(response)),
       ShopifyCallbackError,
     );

@@ -25,6 +25,17 @@ const shopGraphqlErrorSchema = z.object({
   }).passthrough()).min(1),
 }).passthrough();
 
+const accessScopesResponseSchema = z.object({
+  data: z.object({
+    currentAppInstallation: z.object({
+      accessScopes: z.array(z.object({
+        handle: z.string().trim().min(1),
+      })),
+    }),
+  }),
+  errors: z.array(z.object({ message: z.string() }).passthrough()).optional(),
+}).passthrough();
+
 export interface ShopifyTokenResult {
   accessToken: string;
   grantedScopes: string[];
@@ -159,4 +170,50 @@ export async function verifyShopifyShop(
     name: result.data.data.shop.name,
     shopDomain: canonicalDomain,
   };
+}
+
+export async function fetchShopifyGrantedScopes(
+  config: ShopifyConfig,
+  input: { shopDomain: string; accessToken: string },
+  fetchImplementation: Fetch = fetch,
+): Promise<string[]> {
+  const response = await fetchWithTimeout(
+    fetchImplementation,
+    `https://${input.shopDomain}/admin/api/${config.apiVersion}/graphql.json`,
+    {
+      method: 'POST',
+      headers: {
+        'X-Shopify-Access-Token': input.accessToken,
+        accept: 'application/json',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        query: `query ListingPilotGrantedScopes {
+          currentAppInstallation { accessScopes { handle } }
+        }`,
+      }),
+    },
+  );
+  if (!response.ok) {
+    throw new ShopifyCallbackError('shopify_unavailable', 'scope_verification_failed');
+  }
+
+  let untrustedResponse: unknown;
+  try {
+    untrustedResponse = await response.json();
+  } catch {
+    throw new ShopifyCallbackError('shopify_unavailable', 'invalid_scope_response');
+  }
+  if (shopGraphqlErrorSchema.safeParse(untrustedResponse).success) {
+    throw new ShopifyCallbackError('shopify_unavailable', 'scope_verification_failed');
+  }
+  const result = accessScopesResponseSchema.safeParse(untrustedResponse);
+  if (!result.success) {
+    throw new ShopifyCallbackError('shopify_unavailable', 'invalid_scope_response');
+  }
+
+  return [...new Set(
+    result.data.data.currentAppInstallation.accessScopes
+      .map(({ handle }) => handle),
+  )];
 }

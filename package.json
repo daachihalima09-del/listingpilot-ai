@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test:auth-hardening": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test src/modules/auth/services/early-access.test.ts src/modules/auth/validators/environment.test.ts src/app/api/analyze/route-policy.test.ts",
     "test:ai-usage": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test src/modules/ai-usage/service.test.ts src/modules/ai-usage/rate-limiter.test.ts src/modules/ai-usage/architecture.test.ts",
-    "test:shopify-foundation": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test src/modules/shopify/admin/graphql-only.test.ts src/modules/shopify/oauth/shopify-client.test.ts src/modules/shopify/oauth/callback-service.test.ts src/modules/shopify/products/product-update-repository.test.ts src/modules/shopify/products/product-update-service.test.ts src/modules/shopify/webhooks/compliance-service.test.ts src/modules/shopify/webhooks/app-uninstalled-service.test.ts",
+    "test:shopify-foundation": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test src/modules/shopify/admin/graphql-only.test.ts src/modules/shopify/oauth/scope-capabilities.test.ts src/modules/shopify/oauth/shopify-client.test.ts src/modules/shopify/oauth/callback-service.test.ts src/modules/shopify/products/product-update-repository.test.ts src/modules/shopify/products/product-update-service.test.ts src/modules/shopify/webhooks/compliance-service.test.ts src/modules/shopify/webhooks/app-uninstalled-service.test.ts",
     "postinstall": "prisma generate",
     "db:generate": "prisma generate",
     "db:format": "prisma format",

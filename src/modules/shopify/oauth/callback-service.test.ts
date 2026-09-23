@@ -22,7 +22,7 @@ const config: ShopifyConfig = {
   apiSecret: 'secret',
   appUrl: 'https://app.example',
   apiVersion: '2026-07',
-  scopes: ['read_products'],
+  scopes: ['read_products', 'write_products', 'read_files', 'write_files'],
   tokenEncryptionKey: Buffer.alloc(32).toString('base64'),
 };
 
@@ -45,6 +45,7 @@ function callbackUrl(shop = 'example.myshopify.com'): string {
 function dependencies() {
   const events: string[] = [];
   let storedToken = 'encrypted-old-token';
+  let persistedGrantedScopes: string[] | null = null;
   const value: ShopifyCallbackDependencies = {
     async findState() {
       return {
@@ -69,7 +70,14 @@ function dependencies() {
     },
     async exchangeCode() {
       events.push('code-exchanged');
-      return { accessToken: 'plaintext-token', grantedScopes: ['read_products'] };
+      return {
+        accessToken: 'plaintext-token',
+        grantedScopes: ['write_products', 'write_files'],
+      };
+    },
+    async fetchGrantedScopes() {
+      events.push('scopes-verified');
+      return ['write_products', 'write_files'];
     },
     async verifyShop() {
       events.push('shop-verified');
@@ -82,12 +90,18 @@ function dependencies() {
     async persistConnection(input) {
       events.push('connection-persisted');
       storedToken = input.accessTokenEncrypted;
+      persistedGrantedScopes = input.grantedScopes;
     },
     async recordFailure() {
       events.push('failure-audited');
     },
   };
-  return { value, events, getStoredToken: () => storedToken };
+  return {
+    value,
+    events,
+    getStoredToken: () => storedToken,
+    getPersistedGrantedScopes: () => persistedGrantedScopes,
+  };
 }
 
 test('completes the verified callback in security order', async () => {
@@ -104,6 +118,7 @@ test('completes the verified callback in security order', async () => {
   assert.deepEqual(context.events, [
     'state-consumed',
     'code-exchanged',
+    'scopes-verified',
     'shop-verified',
     'token-encrypted',
     'connection-persisted',
@@ -147,6 +162,7 @@ test('failed reconnect verification preserves the existing token and audits safe
   assert.deepEqual(context.events, [
     'state-consumed',
     'code-exchanged',
+    'scopes-verified',
     'failure-audited',
   ]);
 });
@@ -170,6 +186,106 @@ test('rejects a token that is missing a requested scope before shop verification
       return true;
     },
   );
+  assert.deepEqual(context.events, [
+    'state-consumed',
+    'code-exchanged',
+    'failure-audited',
+  ]);
+});
+
+test('accepts all explicit scope handles from both grant sources', async () => {
+  const context = dependencies();
+  const allScopes = ['read_products', 'write_products', 'read_files', 'write_files'];
+  context.value.exchangeCode = async () => {
+    context.events.push('code-exchanged');
+    return { accessToken: 'plaintext-token', grantedScopes: allScopes };
+  };
+  context.value.fetchGrantedScopes = async () => {
+    context.events.push('scopes-verified');
+    return allScopes;
+  };
+  await completeShopifyOAuthCallback(context.value, config, {
+    requestUrl: callbackUrl(),
+    cookieState: state,
+    actorUserId: 'user-1',
+    now,
+  });
+  assert.ok(context.events.includes('connection-persisted'));
+});
+
+test('persists authenticated installation scopes as the authoritative grant set', async () => {
+  const context = dependencies();
+  context.value.exchangeCode = async () => {
+    context.events.push('code-exchanged');
+    return {
+      accessToken: 'plaintext-token',
+      grantedScopes: ['read_products', 'write_products', 'read_files', 'write_files'],
+    };
+  };
+  context.value.fetchGrantedScopes = async () => {
+    context.events.push('scopes-verified');
+    return ['write_products', 'write_files'];
+  };
+  await completeShopifyOAuthCallback(context.value, config, {
+    requestUrl: callbackUrl(),
+    cookieState: state,
+    actorUserId: 'user-1',
+    now,
+  });
+  assert.deepEqual(
+    context.getPersistedGrantedScopes(),
+    ['write_products', 'write_files'],
+  );
+});
+
+test('fails closed when authenticated installation scopes lack a required capability', async () => {
+  const context = dependencies();
+  context.value.fetchGrantedScopes = async () => {
+    context.events.push('scopes-verified');
+    return ['write_products'];
+  };
+  await assert.rejects(
+    completeShopifyOAuthCallback(context.value, config, {
+      requestUrl: callbackUrl(),
+      cookieState: state,
+      actorUserId: 'user-1',
+      now,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ShopifyCallbackError);
+      assert.equal(error.safeCategory, 'missing_scopes');
+      return true;
+    },
+  );
+  assert.equal(context.getStoredToken(), 'encrypted-old-token');
+  assert.deepEqual(context.events, [
+    'state-consumed',
+    'code-exchanged',
+    'scopes-verified',
+    'failure-audited',
+  ]);
+});
+
+test('fails closed when token response and authenticated scopes disagree on required capability', async () => {
+  const context = dependencies();
+  context.value.exchangeCode = async () => {
+    context.events.push('code-exchanged');
+    return { accessToken: 'plaintext-token', grantedScopes: ['write_products'] };
+  };
+  context.value.fetchGrantedScopes = async () => {
+    context.events.push('scopes-verified');
+    return ['write_products', 'write_files'];
+  };
+  await assert.rejects(
+    completeShopifyOAuthCallback(context.value, config, {
+      requestUrl: callbackUrl(),
+      cookieState: state,
+      actorUserId: 'user-1',
+      now,
+    }),
+    ShopifyCallbackError,
+  );
+  assert.equal(context.getStoredToken(), 'encrypted-old-token');
   assert.deepEqual(context.events, [
     'state-consumed',
     'code-exchanged',
