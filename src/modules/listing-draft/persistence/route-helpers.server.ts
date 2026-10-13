@@ -7,6 +7,7 @@ import { MerchantPreferenceError } from '../../merchant-preferences/index.ts';
 import { OpenAiResponsesError } from '../../openai/responses-client-core.ts';
 import { ProjectError } from '../../projects/types/errors.ts';
 import { ListingDraftError } from '../domain/errors.ts';
+import { safeFactualValidationDiagnostic } from '../domain/factual-validation-diagnostic.ts';
 import { AiProtectionError } from '../../ai-usage/domain.ts';
 
 export function listingDraftRouteErrorResponse(error: unknown): NextResponse {
@@ -23,7 +24,7 @@ export function listingDraftRouteErrorResponse(error: unknown): NextResponse {
     if (process.env.NODE_ENV !== 'production' && ['DRAFT_INVENTED_VALUE', 'DRAFT_POLICY_VIOLATION'].includes(error.code)) {
       console.error('Listing draft validation diagnostic.', {
         code: error.code,
-        ...error.metadata,
+        ...(error.code === 'DRAFT_INVENTED_VALUE' ? safeFactualValidationDiagnostic(error.metadata) : error.metadata),
       });
     }
     const merchantMessage = error.code === 'DRAFT_INVENTED_VALUE'

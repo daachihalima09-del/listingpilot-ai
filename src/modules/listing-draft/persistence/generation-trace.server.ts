@@ -1,5 +1,6 @@
 import { mkdir, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { safeFactualValidationDiagnostic } from '../domain/factual-validation-diagnostic.ts';
 
 export const generationTraceDirectory = path.join(process.cwd(), '.local-diagnostics', 'generation-traces');
 const MAX_TRACES = 75;
@@ -40,6 +41,14 @@ function safeValue(value: unknown): unknown {
 function detailsFor(error: unknown): SafeRecord {
   if (!error || typeof error !== 'object') return { errorClass: 'UnknownError' };
   const item = error as { name?: unknown; code?: unknown; statusCode?: unknown; message?: unknown; metadata?: unknown };
+  if (item.code === 'DRAFT_INVENTED_VALUE') {
+    return {
+      errorClass: 'ListingDraftError',
+      errorCode: 'DRAFT_INVENTED_VALUE',
+      errorStatus: typeof item.statusCode === 'number' ? item.statusCode : null,
+      validation: safeFactualValidationDiagnostic(item.metadata),
+    };
+  }
   return {
     errorClass: typeof item.name === 'string' ? item.name : 'UnknownError',
     ...(typeof item.code === 'string' ? { errorCode: item.code } : {}),
@@ -67,6 +76,8 @@ function productionSummary(document: GenerationTraceDocument): SafeRecord {
       errorClass: document.failure.errorClass ?? 'UnknownError',
       errorCode: document.failure.errorCode ?? null,
       errorStatus: document.failure.errorStatus ?? null,
+      ...(document.failure.errorCode === 'DRAFT_INVENTED_VALUE'
+        ? { validation: safeFactualValidationDiagnostic(document.failure.validation) } : {}),
     } : null,
   };
 }

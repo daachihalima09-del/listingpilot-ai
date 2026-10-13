@@ -6,6 +6,7 @@ import type {
 import { comparableFactTokens, factValueIsRepresented, unsupportedFactualTokens } from '../../generation-instructions/domain/fact-fidelity.ts';
 import type { ListingDraftProviderOutput } from '../domain/contracts.ts';
 import { ListingDraftError } from '../domain/errors.ts';
+import { safeFactualValidationDiagnostic } from '../domain/factual-validation-diagnostic.ts';
 import { listingDraftProviderOutputSchema } from './draft-schema.ts';
 
 function normalized(value: string): string {
@@ -230,12 +231,15 @@ function assertGroundedTokens(
       'The generated draft contains a factual value unsupported by its cited facts.',
       422,
       {
-        outputField,
+        ...safeFactualValidationDiagnostic({
+          outputField,
+          factFieldIds: factIds.map((id) => facts.get(id)?.fieldId),
+          reason: 'UNSUPPORTED_FACTUAL_TOKEN',
+        }),
         generatedText: value.slice(0, 500),
         citedFactIds: factIds,
         productTruthValues: factIds.map((id) => facts.get(id)?.value.slice(0, 500) ?? null),
         unsupportedTokens: invented.slice(0, 20),
-        reason: 'UNSUPPORTED_FACTUAL_TOKEN',
       },
     );
   }
@@ -258,13 +262,12 @@ function assertCitationsAreRelevant(
       'A generated product detail did not match the verified product information.',
       422,
       {
-        outputField,
+        ...safeFactualValidationDiagnostic({ outputField, fieldId: fact?.fieldId, reason: 'CITATION_NOT_REPRESENTED' }),
         generatedText: value.slice(0, 500),
         factId: irrelevant,
         fieldId: fact?.fieldId ?? null,
         productTruthValue: fact?.value.slice(0, 500) ?? null,
         factRole: fact?.visibilityRole ?? null,
-        reason: 'CITATION_NOT_REPRESENTED',
       },
     );
   }
@@ -379,10 +382,9 @@ export function validateListingDraftOutput(
         'Generated factual content requires fact references.',
         422,
         {
-          outputField: field,
+          ...safeFactualValidationDiagnostic({ outputField: field, reason: 'MISSING_FACT_REFERENCES' }),
           generatedText: item.value.slice(0, 500),
           citedFactIds: [],
-          reason: 'MISSING_FACT_REFERENCES',
         },
       );
     }
@@ -391,7 +393,8 @@ export function validateListingDraftOutput(
   }
   for (const [field, item] of [['seo.title', output.seo.title], ['seo.description', output.seo.description]] as const) {
     if (item.value.trim() && item.factIds.length === 0) {
-      throw new ListingDraftError('DRAFT_INVENTED_VALUE', 'Generated SEO content requires fact references.', 422);
+      throw new ListingDraftError('DRAFT_INVENTED_VALUE', 'Generated SEO content requires fact references.', 422,
+        safeFactualValidationDiagnostic({ outputField: field, reason: 'MISSING_FACT_REFERENCES' }));
     }
     assertGroundedTokens(item.value, item.factIds, facts, field);
     assertCitationsAreRelevant(item.value, item.factIds, facts, field);
@@ -405,7 +408,12 @@ export function validateListingDraftOutput(
   for (const [index, specification] of output.specifications.entries()) {
     const citedValues = specification.factIds.map((id) => facts.get(id)?.value ?? '').filter(Boolean);
     if (!citedValues.length || citedValues.some((value) => !factValueIsRepresented(specification.value, value))) {
-      throw new ListingDraftError('DRAFT_INVENTED_VALUE', 'Specification values must match selected facts exactly.', 422);
+      throw new ListingDraftError('DRAFT_INVENTED_VALUE', 'Specification values must match selected facts exactly.', 422,
+        safeFactualValidationDiagnostic({
+          outputField: `specifications.${index}`,
+          factFieldIds: specification.factIds.map((id) => facts.get(id)?.fieldId),
+          reason: citedValues.length ? 'SPECIFICATION_FACT_NOT_REPRESENTED' : 'SPECIFICATION_CITATION_MISSING',
+        }));
     }
     assertGroundedTokens(specification.value, specification.factIds, facts, `specifications.${index}`);
   }

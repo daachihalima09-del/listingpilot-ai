@@ -6,6 +6,9 @@ import { createListingGenerationPlan } from '../../listing-generation/index.ts';
 import { finding, generationInput, truthFindings } from '../../listing-generation/tests/fixtures.ts';
 import { ListingDraftEngine } from '../builder/draft-engine.ts';
 import { ListingDraftError } from '../domain/errors.ts';
+import { safeFactualValidationDiagnostic } from '../domain/factual-validation-diagnostic.ts';
+import { canonicalizeProviderOutput } from '../adapter/openai-generation-provider.ts';
+import { listingDraftProviderOutputSchema } from '../validation/draft-schema.ts';
 import { validateListingDraftOutput } from '../validation/draft-validator.ts';
 import { draftInstructions, validProviderOutput } from './fixtures.ts';
 
@@ -244,6 +247,67 @@ test('conflicted or otherwise unapproved facts cannot be cited', () => {
   assert.throws(() => validateListingDraftOutput(output, instructions), (error: unknown) => (
     error instanceof ListingDraftError && error.code === 'DRAFT_FORBIDDEN_FACT'
   ));
+});
+
+test('missing and pruned citations identify their output field without changing rejection', () => {
+  const instructions = draftInstructions();
+  const brand = instructions.allowedFacts.find(({ fieldId }) => fieldId === 'brand')!;
+  for (const target of ['feature', 'seo', 'specification'] as const) {
+    for (const pruned of [false, true]) {
+      const output = structuredClone(validProviderOutput(instructions));
+      const uncited = { value: 'PRIVATE_CITATION_CANARY', factIds: pruned ? [brand.factId] : [] };
+      if (target === 'feature') output.features[0] = uncited;
+      if (target === 'seo') output.seo.description = uncited;
+      const index = output.specifications.length;
+      if (target === 'specification') output.specifications.push({ label: 'Synthetic detail', ...uncited });
+      const candidate = pruned ? canonicalizeProviderOutput(listingDraftProviderOutputSchema.parse(output), instructions) : output;
+      assert.throws(() => validateListingDraftOutput(candidate, instructions), (error: unknown) => {
+        assert.ok(error instanceof ListingDraftError);
+        assert.equal(error.statusCode, 422);
+        assert.equal(error.code, 'DRAFT_INVENTED_VALUE');
+        assert.deepEqual(safeFactualValidationDiagnostic(error.metadata), {
+          reason: target === 'specification' ? 'SPECIFICATION_CITATION_MISSING' : 'MISSING_FACT_REFERENCES',
+          outputField: target === 'feature' ? 'features.0' : target === 'seo' ? 'seo.description' : `specifications.${index}`,
+          factFieldIds: [], comparisonOutcome: 'NO_SUPPORTING_CITATIONS',
+        });
+        return true;
+      });
+    }
+  }
+});
+
+test('unrepresented specification citations identify their supporting fact field', () => {
+  const instructions = draftInstructions();
+  const model = instructions.allowedFacts.find(({ fieldId }) => fieldId === 'model')!;
+  const output = structuredClone(validProviderOutput(instructions));
+  const index = output.specifications.length;
+  output.specifications.push({ label: 'Synthetic model', value: 'UNRELATED_MODEL_CANARY', factIds: [model.factId] });
+  assert.throws(() => validateListingDraftOutput(output, instructions), (error: unknown) => {
+    assert.ok(error instanceof ListingDraftError);
+    assert.equal(error.statusCode, 422);
+    assert.deepEqual(error.metadata, { reason: 'SPECIFICATION_FACT_NOT_REPRESENTED', outputField: `specifications.${index}`,
+      factFieldIds: ['model'], comparisonOutcome: 'CITED_FACT_NOT_REPRESENTED' });
+    return true;
+  });
+});
+
+test('model and screen-size mismatches remain rejected with identifiable diagnostics', () => {
+  const instructions = draftInstructions();
+  for (const [fieldId, generated] of [['model', 'X9999'], ['screen_size', '999-inch']] as const) {
+    const fact = instructions.allowedFacts.find((fact) => fact.fieldId === fieldId)!;
+    const output = structuredClone(validProviderOutput(instructions));
+    output.features[0] = { value: generated, factIds: [fact.factId] };
+    assert.throws(() => validateListingDraftOutput(output, instructions), (error: unknown) => {
+      assert.ok(error instanceof ListingDraftError);
+      assert.equal(error.statusCode, 422);
+      assert.equal(error.metadata.reason, 'UNSUPPORTED_FACTUAL_TOKEN');
+      assert.equal(error.metadata.outputField, 'features.0');
+      assert.deepEqual(error.metadata.factFieldIds, [fieldId]);
+      return true;
+    });
+  }
+  assert.deepEqual(unsupportedFactualTokens('65-inch 120Hz', ['65 inch', '120 Hz']), []);
+  assert.equal(factValueIsRepresented('65" display', '65 inch'), true);
 });
 
 test('blocked plans never call the provider and warning plans retain review warnings', async () => {
