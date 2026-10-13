@@ -123,8 +123,9 @@ export function createListingGenerationTrace(input: {
       if (production && !productionFlushed) {
         productionFlushed = true;
         const summary = productionSummary(document);
-        if (document.failure) logger.error('Listing generation request failed.', summary);
-        else logger.info('Listing generation request completed.', summary);
+        const renderedSummary = JSON.stringify(summary);
+        if (document.failure) logger.error(`Listing generation request failed. ${renderedSummary}`);
+        else logger.info(`Listing generation request completed. ${renderedSummary}`);
       }
     },
   };

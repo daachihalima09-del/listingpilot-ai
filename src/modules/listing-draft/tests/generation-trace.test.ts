@@ -48,23 +48,37 @@ test('production factual diagnostics retain safe rule and field metadata under t
   trace.start('response'); trace.complete('response', { status: 422 });
   await trace.flush(); await trace.flush();
   assert.equal(events.length, 1);
-  const summary = events[0]![1] as { correlationRequestId: string; failedStage: string; failure: { validation: unknown } };
+  const rendered = events[0]![0];
+  assert.ok(typeof rendered === 'string');
+  assert.match(rendered, /^Listing generation request failed\. /u);
+  assert.doesNotMatch(rendered, /\[Array\]/u);
+  const summary = JSON.parse(rendered.slice('Listing generation request failed. '.length)) as { correlationRequestId: string; failedStage: string; failure: { validation: unknown } };
   assert.equal(summary.correlationRequestId, reference);
   assert.equal(summary.failedStage, 'factual_validation');
   assert.deepEqual(summary.failure.validation, {
     reason: 'UNSUPPORTED_FACTUAL_TOKEN', outputField: 'features.2',
     factFieldIds: ['model', 'screen_size'], comparisonOutcome: 'UNSUPPORTED_TOKEN_FOUND',
   });
-  assert.doesNotMatch(JSON.stringify(events), /PRIVATE_CONTENT_CANARY|private\.example|generatedText|productTruthValues|unsupportedTokens|citedFactIds|apiKey|prompt|token|customer/u);
+  assert.doesNotMatch(rendered, /PRIVATE_CONTENT_CANARY|private\.example|generatedText|productTruthValues|unsupportedTokens|citedFactIds|apiKey|prompt|token|customer/u);
 });
 
 test('diagnostic identifiers are allowlisted, bounded and cannot smuggle arbitrary content', () => {
   const diagnostic = safeFactualValidationDiagnostic({
     reason: 'SECRET_REASON_CANARY', outputField: 'https://private.example/customer',
     fieldId: 'SECRET_FIELD_CANARY', comparisonOutcome: 'SECRET_OUTCOME_CANARY',
+    citationPruning: {
+      providerFactFieldIds: ['model', 'PRIVATE_PROVIDER_CANARY'],
+      prunedFactFieldIds: ['PRIVATE_PRUNED_CANARY'],
+      remainingFactFieldIds: ['screen_size', 'PRIVATE_REMAINING_CANARY'],
+    },
   });
   assert.deepEqual(diagnostic, { reason: 'UNCLASSIFIED_FACTUAL_FAILURE', outputField: 'UNKNOWN_OUTPUT_FIELD',
-    factFieldIds: ['OTHER_FACT_FIELD'], comparisonOutcome: 'UNKNOWN_COMPARISON' });
+    factFieldIds: ['OTHER_FACT_FIELD'], comparisonOutcome: 'UNKNOWN_COMPARISON',
+    citationPruning: {
+      providerFactFieldIds: ['model', 'OTHER_FACT_FIELD'],
+      prunedFactFieldIds: ['OTHER_FACT_FIELD'],
+      remainingFactFieldIds: ['screen_size', 'OTHER_FACT_FIELD'],
+    } });
   const bounded = safeFactualValidationDiagnostic({ reason: 'MISSING_FACT_REFERENCES', outputField: 'features.1000',
     factFieldIds: ['model', ...Array.from({ length: 100 }, (_, i) => `PRIVATE_${i}`)],
   });
@@ -129,7 +143,8 @@ test('production generation traces emit one correlation-safe summary without pro
   await trace.flush();
   await trace.flush();
   assert.equal(events.length, 1);
-  const serialized = JSON.stringify(events[0]);
+  const serialized = events[0]![0];
+  assert.ok(typeof serialized === 'string');
   assert.match(serialized, new RegExp(requestId));
   assert.match(serialized, /provider_request/u);
   assert.match(serialized, /DRAFT_PROVIDER_FAILED/u);

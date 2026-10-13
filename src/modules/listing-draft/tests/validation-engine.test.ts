@@ -265,15 +265,45 @@ test('missing and pruned citations identify their output field without changing 
         assert.ok(error instanceof ListingDraftError);
         assert.equal(error.statusCode, 422);
         assert.equal(error.code, 'DRAFT_INVENTED_VALUE');
-        assert.deepEqual(safeFactualValidationDiagnostic(error.metadata), {
+        const diagnostic = safeFactualValidationDiagnostic(error.metadata);
+        assert.deepEqual(diagnostic, {
           reason: target === 'specification' ? 'SPECIFICATION_CITATION_MISSING' : 'MISSING_FACT_REFERENCES',
           outputField: target === 'feature' ? 'features.0' : target === 'seo' ? 'seo.description' : `specifications.${index}`,
           factFieldIds: [], comparisonOutcome: 'NO_SUPPORTING_CITATIONS',
+          ...(pruned ? { citationPruning: { providerFactFieldIds: ['brand'], prunedFactFieldIds: ['brand'], remainingFactFieldIds: [] } } : {}),
         });
         return true;
       });
     }
   }
+});
+
+test('citation pruning records only safe supplied, pruned and remaining evidence fields', () => {
+  const instructions = draftInstructions();
+  const byField = new Map(instructions.allowedFacts.map((fact) => [fact.fieldId, fact]));
+  const brand = byField.get('brand')!;
+  const model = byField.get('model')!;
+  const resolution = byField.get('resolution')!;
+  const output = structuredClone(validProviderOutput(instructions));
+  output.seo.title = {
+    value: `${brand.value} ${model.value} OLED`,
+    factIds: [brand.factId, model.factId, resolution.factId],
+  };
+  const canonical = canonicalizeProviderOutput(listingDraftProviderOutputSchema.parse(output), instructions);
+  assert.throws(() => validateListingDraftOutput(canonical, instructions), (error: unknown) => {
+    assert.ok(error instanceof ListingDraftError);
+    const diagnostic = safeFactualValidationDiagnostic(error.metadata);
+    assert.deepEqual(diagnostic, {
+      reason: 'UNSUPPORTED_FACTUAL_TOKEN', outputField: 'seo.title',
+      factFieldIds: ['brand', 'model'], comparisonOutcome: 'UNSUPPORTED_TOKEN_FOUND',
+      citationPruning: {
+        providerFactFieldIds: ['brand', 'model', 'resolution'],
+        prunedFactFieldIds: ['resolution'], remainingFactFieldIds: ['brand', 'model'],
+      },
+    });
+    assert.doesNotMatch(JSON.stringify(diagnostic), /OLED|4K|PRIVATE/u);
+    return true;
+  });
 });
 
 test('unrepresented specification citations identify their supporting fact field', () => {

@@ -14,6 +14,7 @@ import {
   listingDraftProviderOutputSchema,
 } from '../validation/draft-schema.ts';
 import type { ListingGenerationTrace } from '../persistence/generation-trace.server.ts';
+import { attachCitationPruningDiagnostics, type CitationPruningDiagnosticInput } from '../domain/factual-validation-diagnostic.ts';
 
 export function buildGenerationProviderInstructions(
   instructions: GenerationInstructions,
@@ -46,22 +47,63 @@ export function buildGenerationProviderInstructions(
 function pruneProviderCitations(
   output: ListingDraftProviderOutput,
   instructions: GenerationInstructions,
+  providerCitationFactIds: Readonly<Record<string, readonly string[]>> = citationFactIdsByOutputField(output),
 ): ListingDraftProviderOutput {
   const facts = new Map(instructions.allowedFacts.map((fact) => [fact.factId, fact]));
-  const prune = <T extends { value: string; factIds: readonly string[] }>(item: T): T => ({ ...item, factIds: item.factIds.filter((factId) => {
+  const diagnostics: Record<string, CitationPruningDiagnosticInput> = {};
+  const fieldIds = (factIds: readonly string[]) => factIds.map((factId) => facts.get(factId)?.fieldId);
+  const prune = <T extends { value: string; factIds: readonly string[] }>(item: T, outputField: string): T => {
+    const remainingFactIds = item.factIds.filter((factId) => {
     const fact = facts.get(factId);
     return Boolean(fact && factValueIsRepresented(item.value, fact.value));
-  }) });
-  return {
-    ...output, title: prune(output.title), overview: prune(output.overview), specifications: output.specifications.map(prune),
-    features: output.features.map(prune), whatsIncluded: output.whatsIncluded.map(prune),
-    seo: { title: prune(output.seo.title), description: prune(output.seo.description), handle: prune(output.seo.handle) },
-    catalog: { tags: output.catalog.tags.map(prune), collections: output.catalog.collections.map(prune), productType: prune(output.catalog.productType), vendor: prune(output.catalog.vendor) },
-    metafields: output.metafields.map(prune),
+    });
+    const suppliedFactIds = providerCitationFactIds[outputField] ?? item.factIds;
+    diagnostics[outputField] = {
+      providerFactFieldIds: fieldIds(suppliedFactIds),
+      prunedFactFieldIds: fieldIds(item.factIds.filter((factId) => !remainingFactIds.includes(factId))),
+      remainingFactFieldIds: fieldIds(remainingFactIds),
+    };
+    return { ...item, factIds: remainingFactIds };
+  };
+  const canonical = {
+    ...output, title: prune(output.title, 'title'), overview: prune(output.overview, 'description'),
+    specifications: output.specifications.map((item, index) => prune(item, `specifications.${index}`)),
+    features: output.features.map((item, index) => prune(item, `features.${index}`)),
+    whatsIncluded: output.whatsIncluded.map((item, index) => prune(item, `whatsIncluded.${index}`)),
+    seo: { title: prune(output.seo.title, 'seo.title'), description: prune(output.seo.description, 'seo.description'), handle: prune(output.seo.handle, 'seo.handle') },
+    catalog: { tags: output.catalog.tags.map((item, index) => prune(item, `catalog.tags.${index}`)), collections: output.catalog.collections.map((item, index) => prune(item, `catalog.collections.${index}`)), productType: prune(output.catalog.productType, 'catalog.productType'), vendor: prune(output.catalog.vendor, 'catalog.vendor') },
+    metafields: output.metafields.map((item, index) => prune(item, `metafields.${index}`)),
     media: output.media.map((media) => ({ ...media, factIds: media.factIds.filter((factId) => {
       const fact = facts.get(factId);
       return Boolean(fact && factValueIsRepresented(media.altText, fact.value));
     }) })),
+  };
+  for (const [index, media] of output.media.entries()) {
+    const field = `media.${index}.altText`;
+    const remainingFactIds = canonical.media[index]!.factIds;
+    const suppliedFactIds = providerCitationFactIds[field] ?? media.factIds;
+    diagnostics[field] = {
+      providerFactFieldIds: fieldIds(suppliedFactIds),
+      prunedFactFieldIds: fieldIds(media.factIds.filter((factId) => !remainingFactIds.includes(factId))),
+      remainingFactFieldIds: fieldIds(remainingFactIds),
+    };
+  }
+  attachCitationPruningDiagnostics(canonical, diagnostics);
+  return canonical;
+}
+
+function citationFactIdsByOutputField(output: ListingDraftProviderOutput): Readonly<Record<string, readonly string[]>> {
+  return {
+    title: output.title.factIds, description: output.overview.factIds,
+    ...Object.fromEntries(output.specifications.map((item, index) => [`specifications.${index}`, item.factIds])),
+    ...Object.fromEntries(output.features.map((item, index) => [`features.${index}`, item.factIds])),
+    ...Object.fromEntries(output.whatsIncluded.map((item, index) => [`whatsIncluded.${index}`, item.factIds])),
+    'seo.title': output.seo.title.factIds, 'seo.description': output.seo.description.factIds, 'seo.handle': output.seo.handle.factIds,
+    ...Object.fromEntries(output.catalog.tags.map((item, index) => [`catalog.tags.${index}`, item.factIds])),
+    ...Object.fromEntries(output.catalog.collections.map((item, index) => [`catalog.collections.${index}`, item.factIds])),
+    'catalog.productType': output.catalog.productType.factIds, 'catalog.vendor': output.catalog.vendor.factIds,
+    ...Object.fromEntries(output.metafields.map((item, index) => [`metafields.${index}`, item.factIds])),
+    ...Object.fromEntries(output.media.map((item, index) => [`media.${index}.altText`, item.factIds])),
   };
 }
 
@@ -69,7 +111,8 @@ export function canonicalizeProviderOutput(
   output: ListingDraftProviderOutput,
   instructions: GenerationInstructions,
 ): ListingDraftProviderOutput {
-  if (instructions.sourcePlan.listingStandardId !== 'NEOVIX') return pruneProviderCitations(output, instructions);
+  const providerCitationFactIds = citationFactIdsByOutputField(output);
+  if (instructions.sourcePlan.listingStandardId !== 'NEOVIX') return pruneProviderCitations(output, instructions, providerCitationFactIds);
   const grouped = new Map<string, ListingDraftProviderOutput['specifications'][number]>();
   for (const specification of output.specifications) {
     const key = specification.label.trim().toLocaleLowerCase('en-US');
@@ -142,7 +185,7 @@ export function canonicalizeProviderOutput(
       ...feature,
       value: /^\u2714\s/u.test(feature.value) ? feature.value : `\u2714 ${feature.value.trim()}`,
     })),
-  }, instructions);
+  }, instructions, providerCitationFactIds);
 }
 
 export class OpenAiGenerationProvider implements GenerationProvider {

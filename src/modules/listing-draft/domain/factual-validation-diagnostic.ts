@@ -25,12 +25,61 @@ const safeFactFields = new Set([
   'oscillation', 'runtime', 'cleaner_heads', 'attachments', 'hair_compatibility',
 ]);
 
+export interface CitationPruningDiagnosticInput {
+  readonly providerFactFieldIds?: unknown;
+  readonly prunedFactFieldIds?: unknown;
+  readonly remainingFactFieldIds?: unknown;
+}
+
+export interface SafeCitationPruningDiagnostic {
+  readonly providerFactFieldIds: readonly string[];
+  readonly prunedFactFieldIds: readonly string[];
+  readonly remainingFactFieldIds: readonly string[];
+}
+
+const citationPruningByOutput = new WeakMap<object, ReadonlyMap<string, CitationPruningDiagnosticInput>>();
+
 function safeOutputField(value: unknown): string {
   if (typeof value !== 'string' || value.length > 40) return 'UNKNOWN_OUTPUT_FIELD';
   if (['title', 'description', 'seo.title', 'seo.description', 'seo.handle'].includes(value)) return value;
   // Arrays are schema-bounded; reject arbitrary paths and excessively large indices.
   return /^(?:(?:features|whatsIncluded|specifications)\.(?:0|[1-9]\d{0,2})|media\.(?:0|[1-9]\d{0,2})\.altText)$/u.test(value)
     ? value : 'UNKNOWN_OUTPUT_FIELD';
+}
+
+function safeFactFieldIds(value: unknown): readonly string[] {
+  const fields = Array.isArray(value) ? value : [];
+  return [...new Set(fields.slice(0, 20).map((field) => (
+    typeof field === 'string' && safeFactFields.has(field) ? field : 'OTHER_FACT_FIELD'
+  )))];
+}
+
+export function safeCitationPruningDiagnostic(value: unknown): SafeCitationPruningDiagnostic | null {
+  if (!value || typeof value !== 'object') return null;
+  const item = value as CitationPruningDiagnosticInput;
+  return {
+    providerFactFieldIds: safeFactFieldIds(item.providerFactFieldIds),
+    prunedFactFieldIds: safeFactFieldIds(item.prunedFactFieldIds),
+    remainingFactFieldIds: safeFactFieldIds(item.remainingFactFieldIds),
+  };
+}
+
+export function attachCitationPruningDiagnostics(
+  output: object,
+  byOutputField: Readonly<Record<string, CitationPruningDiagnosticInput>>,
+): void {
+  const entries = Object.entries(byOutputField)
+    .filter(([outputField]) => safeOutputField(outputField) === outputField)
+    .map(([outputField, diagnostic]) => [outputField, diagnostic] as const);
+  citationPruningByOutput.set(output, new Map(entries));
+}
+
+export function citationPruningDiagnosticFor(
+  output: unknown,
+  outputField: string,
+): SafeCitationPruningDiagnostic | null {
+  if (!output || typeof output !== 'object') return null;
+  return safeCitationPruningDiagnostic(citationPruningByOutput.get(output)?.get(outputField));
 }
 
 export function safeFactualValidationDiagnostic(metadata: unknown) {
@@ -40,13 +89,13 @@ export function safeFactualValidationDiagnostic(metadata: unknown) {
     ? item.reason as keyof typeof comparisonOutcomes : 'UNCLASSIFIED_FACTUAL_FAILURE';
   const fields = Array.isArray(item.factFieldIds)
     ? item.factFieldIds : typeof item.fieldId === 'string' ? [item.fieldId] : [];
+  const citationPruning = safeCitationPruningDiagnostic(item.citationPruning);
   return {
     reason,
     outputField: safeOutputField(item.outputField),
-    factFieldIds: [...new Set(fields.slice(0, 20).map((field) => (
-      typeof field === 'string' && safeFactFields.has(field) ? field : 'OTHER_FACT_FIELD'
-    )))],
+    factFieldIds: safeFactFieldIds(fields),
     comparisonOutcome: reason === 'UNCLASSIFIED_FACTUAL_FAILURE'
       ? 'UNKNOWN_COMPARISON' : comparisonOutcomes[reason],
+    ...(citationPruning ? { citationPruning } : {}),
   };
 }

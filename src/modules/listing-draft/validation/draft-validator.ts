@@ -6,7 +6,7 @@ import type {
 import { comparableFactTokens, factValueIsRepresented, unsupportedFactualTokens } from '../../generation-instructions/domain/fact-fidelity.ts';
 import type { ListingDraftProviderOutput } from '../domain/contracts.ts';
 import { ListingDraftError } from '../domain/errors.ts';
-import { safeFactualValidationDiagnostic } from '../domain/factual-validation-diagnostic.ts';
+import { citationPruningDiagnosticFor, safeFactualValidationDiagnostic } from '../domain/factual-validation-diagnostic.ts';
 import { listingDraftProviderOutputSchema } from './draft-schema.ts';
 
 function normalized(value: string): string {
@@ -218,11 +218,25 @@ function factIsRepresented(value: string, fact: AllowedFactInstruction): boolean
   return factValueIsRepresented(value, fact.value);
 }
 
+function factualDiagnostic(
+  output: unknown,
+  outputField: string,
+  metadata: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
+  const citationPruning = citationPruningDiagnosticFor(output, outputField);
+  return safeFactualValidationDiagnostic({
+    ...metadata,
+    outputField,
+    ...(citationPruning ? { citationPruning } : {}),
+  });
+}
+
 function assertGroundedTokens(
   value: string,
   factIds: readonly string[],
   facts: ReadonlyMap<string, AllowedFactInstruction>,
   outputField: string,
+  output: unknown,
 ): void {
   const invented = unsupportedFactualTokens(value, factIds.map((id) => facts.get(id)?.value ?? ''));
   if (invented.length) {
@@ -231,8 +245,7 @@ function assertGroundedTokens(
       'The generated draft contains a factual value unsupported by its cited facts.',
       422,
       {
-        ...safeFactualValidationDiagnostic({
-          outputField,
+        ...factualDiagnostic(output, outputField, {
           factFieldIds: factIds.map((id) => facts.get(id)?.fieldId),
           reason: 'UNSUPPORTED_FACTUAL_TOKEN',
         }),
@@ -250,6 +263,7 @@ function assertCitationsAreRelevant(
   factIds: readonly string[],
   facts: ReadonlyMap<string, AllowedFactInstruction>,
   outputField: string,
+  output: unknown,
 ): void {
   const irrelevant = factIds.find((id) => {
     const fact = facts.get(id);
@@ -262,7 +276,7 @@ function assertCitationsAreRelevant(
       'A generated product detail did not match the verified product information.',
       422,
       {
-        ...safeFactualValidationDiagnostic({ outputField, fieldId: fact?.fieldId, reason: 'CITATION_NOT_REPRESENTED' }),
+        ...factualDiagnostic(output, outputField, { fieldId: fact?.fieldId, reason: 'CITATION_NOT_REPRESENTED' }),
         generatedText: value.slice(0, 500),
         factId: irrelevant,
         fieldId: fact?.fieldId ?? null,
@@ -382,40 +396,39 @@ export function validateListingDraftOutput(
         'Generated factual content requires fact references.',
         422,
         {
-          ...safeFactualValidationDiagnostic({ outputField: field, reason: 'MISSING_FACT_REFERENCES' }),
+          ...factualDiagnostic(value, field, { reason: 'MISSING_FACT_REFERENCES' }),
           generatedText: item.value.slice(0, 500),
           citedFactIds: [],
         },
       );
     }
-    assertGroundedTokens(item.value, item.factIds, facts, field);
-    assertCitationsAreRelevant(item.value, item.factIds, facts, field);
+    assertGroundedTokens(item.value, item.factIds, facts, field, value);
+    assertCitationsAreRelevant(item.value, item.factIds, facts, field, value);
   }
   for (const [field, item] of [['seo.title', output.seo.title], ['seo.description', output.seo.description]] as const) {
     if (item.value.trim() && item.factIds.length === 0) {
       throw new ListingDraftError('DRAFT_INVENTED_VALUE', 'Generated SEO content requires fact references.', 422,
-        safeFactualValidationDiagnostic({ outputField: field, reason: 'MISSING_FACT_REFERENCES' }));
+        factualDiagnostic(value, field, { reason: 'MISSING_FACT_REFERENCES' }));
     }
-    assertGroundedTokens(item.value, item.factIds, facts, field);
-    assertCitationsAreRelevant(item.value, item.factIds, facts, field);
+    assertGroundedTokens(item.value, item.factIds, facts, field, value);
+    assertCitationsAreRelevant(item.value, item.factIds, facts, field, value);
   }
-  assertGroundedTokens(output.seo.handle.value, output.seo.handle.factIds, facts, 'seo.handle');
-  assertCitationsAreRelevant(output.seo.handle.value, output.seo.handle.factIds, facts, 'seo.handle');
+  assertGroundedTokens(output.seo.handle.value, output.seo.handle.factIds, facts, 'seo.handle', value);
+  assertCitationsAreRelevant(output.seo.handle.value, output.seo.handle.factIds, facts, 'seo.handle', value);
   for (const [index, media] of output.media.entries()) {
-    assertGroundedTokens(media.altText, media.factIds, facts, `media.${index}.altText`);
-    assertCitationsAreRelevant(media.altText, media.factIds, facts, `media.${index}.altText`);
+    assertGroundedTokens(media.altText, media.factIds, facts, `media.${index}.altText`, value);
+    assertCitationsAreRelevant(media.altText, media.factIds, facts, `media.${index}.altText`, value);
   }
   for (const [index, specification] of output.specifications.entries()) {
     const citedValues = specification.factIds.map((id) => facts.get(id)?.value ?? '').filter(Boolean);
     if (!citedValues.length || citedValues.some((value) => !factValueIsRepresented(specification.value, value))) {
       throw new ListingDraftError('DRAFT_INVENTED_VALUE', 'Specification values must match selected facts exactly.', 422,
-        safeFactualValidationDiagnostic({
-          outputField: `specifications.${index}`,
+        factualDiagnostic(value, `specifications.${index}`, {
           factFieldIds: specification.factIds.map((id) => facts.get(id)?.fieldId),
           reason: citedValues.length ? 'SPECIFICATION_FACT_NOT_REPRESENTED' : 'SPECIFICATION_CITATION_MISSING',
         }));
     }
-    assertGroundedTokens(specification.value, specification.factIds, facts, `specifications.${index}`);
+    assertGroundedTokens(specification.value, specification.factIds, facts, `specifications.${index}`, value);
   }
 
   const catalog = instructions.groups.CATALOG.instructions;
