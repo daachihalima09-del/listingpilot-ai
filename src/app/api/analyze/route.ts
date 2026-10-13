@@ -12,6 +12,7 @@ import { AiProtectionError, secureKey } from '@/modules/ai-usage/domain';
 import { runReservedAiOperation, type AiOperationLease } from '@/modules/ai-usage/service';
 import { getUserProduct } from '@/modules/products/services/product-service.server';
 import { ProjectError } from '@/modules/projects/types/errors';
+import { productLookupIdentity } from './product-identity';
 
 export const runtime = 'nodejs';
 
@@ -140,7 +141,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const product = await getUserProduct(user.id, parsedRequest.productIdentity);
+    const product = await getUserProduct(user.id, productLookupIdentity(parsedRequest.productIdentity));
     if (product.version !== parsedRequest.productIdentity.version) {
       return NextResponse.json({ error: 'This product changed. Refresh before analyzing again.' }, { status: 409 });
     }

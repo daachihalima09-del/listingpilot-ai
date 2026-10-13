@@ -15,6 +15,20 @@ test('analysis authenticates before configuration, request parsing, URL extracti
   assert.ok(authentication < source.indexOf('createStructuredResponse(', routeStart));
 });
 
+test('analysis validates the authorized Product before extraction or provider work and keeps optimistic concurrency', async () => {
+  const source = await readFile(new URL('./route.ts', import.meta.url), 'utf8');
+  const productLookup = source.indexOf('getUserProduct(user.id, productLookupIdentity(parsedRequest.productIdentity))');
+  const versionCheck = source.indexOf('product.version !== parsedRequest.productIdentity.version');
+  const extraction = source.indexOf('extractProductPage(');
+  const provider = source.indexOf('createStructuredResponse(');
+
+  assert.ok(productLookup >= 0);
+  assert.ok(productLookup < versionCheck);
+  assert.ok(versionCheck < extraction);
+  assert.ok(versionCheck < provider);
+  assert.match(source.slice(versionCheck, extraction), /status: 409/u);
+});
+
 test('analysis provider failures include bounded correlation diagnostics', async () => {
   const source = await readFile(new URL('./route.ts', import.meta.url), 'utf8');
 
