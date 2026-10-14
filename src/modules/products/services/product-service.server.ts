@@ -2,6 +2,7 @@ import 'server-only';
 
 import { Prisma, type Product as PrismaProduct } from '@prisma/client';
 import type { ZodType } from 'zod';
+import { preserveProductWork } from '../analysis/analysis-state';
 import { prisma } from '@/lib/prisma';
 import {
   projectAnalysisDataSchema,
@@ -225,6 +226,17 @@ export async function getUserProduct(actorUserId: string, input: unknown): Promi
   });
 }
 
+export async function requireUserProductAnalysisAccess(actorUserId: string, input: unknown): Promise<ProductDetail> {
+  const parsed = productIdentitySchema.parse(input);
+  return transaction(async (tx) => {
+    requireOwner(await requireMembership(tx, actorUserId, parsed.workspaceId));
+    await requireProject(tx, parsed.workspaceId, parsed.projectId);
+    const product = await requireProduct(tx, parsed.workspaceId, parsed.projectId, parsed.productId);
+    if (product.archivedAt) throw new ProjectLifecycleError('Restore this product before analyzing.');
+    return toDetail(product);
+  });
+}
+
 export async function createUserProduct(actorUserId: string, input: unknown): Promise<ProductDetail> {
   const parsed = createProductSchema.parse(input);
   return transaction(async (tx) => {
@@ -276,24 +288,25 @@ export async function renameUserProduct(actorUserId: string, input: unknown): Pr
   });
 }
 
-export async function saveUserProductState(actorUserId: string, input: unknown): Promise<ProductDetail> {
+export async function saveUserProductState(actorUserId: string, input: unknown, options: { readonly refreshListingEvidence?: boolean } = {}): Promise<ProductDetail> {
   const parsed = saveProductStateSchema.parse(input);
   return transaction(async (tx) => {
     const membership = await requireMembership(tx, actorUserId, parsed.workspaceId);
     requireOwner(membership);
     const existing = await requireProduct(tx, parsed.workspaceId, parsed.projectId, parsed.productId);
     if (existing.archivedAt) throw new ProjectLifecycleError('Restore this product before saving changes.');
+    const preserved = preserveProductWork(toDetail(existing), parsed, options);
     const result = await tx.product.updateMany({
       where: { id: parsed.productId, projectId: parsed.projectId, workspaceId: parsed.workspaceId, version: parsed.version, archivedAt: null },
       data: {
         sourceType: parsed.sourceType,
         sourceUrl: parsed.sourceUrl,
         rawInput: parsed.rawInput,
-        analysisData: parsed.analysisData === null ? Prisma.DbNull : parsed.analysisData as Prisma.InputJsonValue,
-        generatedListing: parsed.generatedListing === null ? Prisma.DbNull : parsed.generatedListing as Prisma.InputJsonValue,
-        seoData: parsed.seoData === null ? Prisma.DbNull : parsed.seoData as Prisma.InputJsonValue,
-        readinessData: parsed.readinessData === null ? Prisma.DbNull : parsed.readinessData as Prisma.InputJsonValue,
-        status: parsed.readinessData?.shopifyReady ? 'READY' : 'DRAFT',
+        analysisData: preserved.analysisData === null ? Prisma.DbNull : preserved.analysisData as Prisma.InputJsonValue,
+        generatedListing: preserved.generatedListing === null ? Prisma.DbNull : preserved.generatedListing as Prisma.InputJsonValue,
+        seoData: preserved.seoData === null ? Prisma.DbNull : preserved.seoData as Prisma.InputJsonValue,
+        readinessData: preserved.readinessData as Prisma.InputJsonValue,
+        status: preserved.readinessData?.shopifyReady ? 'READY' : 'DRAFT',
         version: { increment: 1 },
         updatedAt: new Date(),
       },
@@ -306,6 +319,38 @@ export async function saveUserProductState(actorUserId: string, input: unknown):
       metadata: { projectId: parsed.projectId, changedFields: ['source', 'analysisData', 'generatedListing', 'seoData', 'readinessData'] },
     } });
     return toDetail(product);
+  });
+}
+
+export async function saveUserProductAnalysis(actorUserId: string, input: unknown): Promise<ProductDetail> {
+  const parsed = saveProductStateSchema.omit({ generatedListing: true, seoData: true, readinessData: true }).parse(input);
+  if (!parsed.analysisData) throw new ProjectLifecycleError('A complete analysis is required.');
+  return transaction(async (tx) => {
+    const membership = await requireMembership(tx, actorUserId, parsed.workspaceId);
+    requireOwner(membership);
+    await requireProject(tx, parsed.workspaceId, parsed.projectId);
+    const existing = await requireProduct(tx, parsed.workspaceId, parsed.projectId, parsed.productId);
+    if (existing.archivedAt) throw new ProjectLifecycleError('Restore this product before analyzing.');
+    const readinessData: ProjectReadinessData = {
+      analysisStarted: true, activeStage: 'verify', completedStages: ['input', 'extract', 'verify'],
+      shopifyReady: false, analysisPending: false,
+      listingEvidenceStale: Boolean(existing.generatedListing),
+    };
+    const result = await tx.product.updateMany({
+      where: { id: parsed.productId, projectId: parsed.projectId, workspaceId: parsed.workspaceId, version: parsed.version, archivedAt: null },
+      data: {
+        sourceType: parsed.sourceType, sourceUrl: parsed.sourceUrl, rawInput: parsed.rawInput,
+        analysisData: parsed.analysisData as Prisma.InputJsonValue, readinessData: readinessData as Prisma.InputJsonValue,
+        status: 'DRAFT', version: { increment: 1 }, updatedAt: new Date(),
+      },
+    });
+    if (result.count !== 1) throw new ProjectStaleWriteError();
+    await tx.auditLog.create({ data: {
+      organizationId: membership.organizationId, workspaceId: parsed.workspaceId, userId: actorUserId,
+      action: 'product.analysis.saved', entityType: 'Product', entityId: parsed.productId,
+      metadata: { projectId: parsed.projectId, sourceType: parsed.sourceType, previousDraftPreserved: Boolean(existing.generatedListing) },
+    } });
+    return toDetail(await requireProduct(tx, parsed.workspaceId, parsed.projectId, parsed.productId));
   });
 }
 

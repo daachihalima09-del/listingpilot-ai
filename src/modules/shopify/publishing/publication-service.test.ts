@@ -141,6 +141,23 @@ test('first publish creates a product and persists the project link', async () =
   assert.equal(setup.counts.saves, 1);
 });
 
+test('retained stale-evidence listings cannot create or update through the legacy publishing entry point', async () => {
+  for (const publication of [null, reference()]) {
+    const setup = dependencies();
+    await assert.rejects(publishShopifyProject(
+      setup.dependencies,
+      { ...context, publication, evidenceCurrent: false } as ShopifyPublicationProjectContext,
+      input,
+      null,
+    ), (error: unknown) => error instanceof ShopifyPublicationError
+      && error.statusCode === 409
+      && /evidence|analyz|new listing/iu.test(error.message));
+    assert.equal(setup.counts.creates, 0);
+    assert.equal(setup.counts.updates, 0);
+    assert.equal(setup.counts.saves, 0);
+  }
+});
+
 test('existing project linkage controls the Shopify update ID', async () => {
   const setup = dependencies({ currentTitle: 'Old title' });
   const result = await publishShopifyProject(

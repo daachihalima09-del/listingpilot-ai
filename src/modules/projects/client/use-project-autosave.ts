@@ -64,10 +64,12 @@ export function useProjectAutosave({
   project,
   snapshot,
   enabled,
+  paused = false,
 }: {
   project: SavedProjectWorkspace | null;
   snapshot: ProjectSaveSnapshot;
   enabled: boolean;
+  paused?: boolean;
 }) {
   const initialHash = useRef(JSON.stringify(snapshot));
   const lastSavedHash = useRef(initialHash.current);
@@ -78,6 +80,9 @@ export function useProjectAutosave({
     resolve: (version: number | null) => void;
   }>>([]);
   const processing = useRef(false);
+  const suspended = useRef(paused);
+  const saveEpoch = useRef(0);
+  const drainWaiters = useRef<Array<(version: number) => void>>([]);
   const blockedByConflict = useRef(false);
   const mounted = useRef(true);
   const [status, setStatus] = useState<SaveStatus>(
@@ -95,12 +100,12 @@ export function useProjectAutosave({
   }, []);
 
   const processQueue = useCallback(async () => {
-    if (!project || !enabled || processing.current || blockedByConflict.current) {
+    if (!project || !enabled || suspended.current || processing.current || blockedByConflict.current) {
       return;
     }
 
     processing.current = true;
-    while (queuedSave.current && !blockedByConflict.current) {
+    while (queuedSave.current && !blockedByConflict.current && !suspended.current) {
       const item = queuedSave.current;
       queuedSave.current = null;
       if (item.hash === lastSavedHash.current) {
@@ -158,6 +163,9 @@ export function useProjectAutosave({
       }
     }
     processing.current = false;
+    const drained = drainWaiters.current;
+    drainWaiters.current = [];
+    for (const resolve of drained) resolve(version.current);
     const waiters = flushWaiters.current;
     flushWaiters.current = [];
     for (const waiter of waiters) {
@@ -170,14 +178,14 @@ export function useProjectAutosave({
   }, [enabled, project]);
 
   const enqueueSave = useCallback((nextSnapshot: ProjectSaveSnapshot) => {
-    if (!project || !enabled || blockedByConflict.current) {
+    if (!project || !enabled || suspended.current || blockedByConflict.current) {
       return;
     }
     const item = {
       hash: JSON.stringify(nextSnapshot),
       snapshot: nextSnapshot,
     };
-    if (item.hash === lastSavedHash.current) {
+    if (item.hash === lastSavedHash.current && !processing.current) {
       if (mounted.current) {
         setStatus('saved');
         setMessage('Saved');
@@ -194,29 +202,31 @@ export function useProjectAutosave({
   }, [enabled, processQueue, project]);
 
   useEffect(() => {
-    if (!project || !enabled || blockedByConflict.current) {
+    suspended.current = paused;
+    if (!project || !enabled || paused || blockedByConflict.current) {
       return;
     }
 
     const hash = JSON.stringify(snapshot);
-    if (hash === lastSavedHash.current) {
+    if (hash === lastSavedHash.current && !processing.current) {
       return;
     }
 
     setStatus('pending');
     setMessage('Unsaved changes');
+    const scheduledEpoch = saveEpoch.current;
     const timer = window.setTimeout(() => {
-      enqueueSave(snapshot);
+      if (scheduledEpoch === saveEpoch.current) enqueueSave(snapshot);
     }, 1_200);
     return () => window.clearTimeout(timer);
-  }, [enabled, enqueueSave, project, snapshot]);
+  }, [enabled, enqueueSave, paused, project, snapshot]);
 
   const saveNow = useCallback((): Promise<number | null> => {
     const hash = JSON.stringify(snapshot);
-    if (!project || !enabled || blockedByConflict.current) {
+    if (!project || !enabled || suspended.current || blockedByConflict.current) {
       return Promise.resolve(null);
     }
-    if (hash === lastSavedHash.current) {
+    if (hash === lastSavedHash.current && !processing.current) {
       return Promise.resolve(version.current);
     }
     return new Promise((resolve) => {
@@ -226,6 +236,7 @@ export function useProjectAutosave({
   }, [enabled, enqueueSave, project, snapshot]);
 
   const adoptExternalSave = useCallback((nextVersion: number, savedSnapshot: ProjectSaveSnapshot) => {
+    saveEpoch.current += 1;
     const savedHash = JSON.stringify(savedSnapshot);
     version.current = nextVersion;
     setCurrentVersion(nextVersion);
@@ -239,11 +250,22 @@ export function useProjectAutosave({
     setMessage('Saved');
   }, []);
 
+  const pauseAndDrain = useCallback(async (): Promise<number> => {
+    saveEpoch.current += 1;
+    suspended.current = true;
+    queuedSave.current = null;
+    if (!processing.current) return version.current;
+    return new Promise((resolve) => drainWaiters.current.push(resolve));
+  }, []);
+  const resume = useCallback(() => { suspended.current = false; }, []);
+
   return {
     status,
     message,
     saveNow,
     currentVersion,
     adoptExternalSave,
+    pauseAndDrain,
+    resume,
   };
 }

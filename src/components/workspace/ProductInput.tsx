@@ -21,6 +21,7 @@ interface ProductInputProps {
   selectedPdf: File | null;
   onPdfChange: (file: File | null) => void;
   inputError: string | null;
+  onPasteProductInformation?: () => void;
   readOnly?: boolean;
   entryMode?: boolean;
 }
@@ -58,6 +59,7 @@ export function ProductInput({
   selectedPdf,
   onPdfChange,
   inputError,
+  onPasteProductInformation,
   readOnly = false,
   entryMode = false,
 }: ProductInputProps) {
@@ -200,6 +202,7 @@ export function ProductInput({
             </label>
           )}
           {inputError ? <p className="px-1 text-xs text-rose-300" role="alert">{inputError}</p> : null}
+          {inputError && onPasteProductInformation ? <button type="button" onClick={onPasteProductInformation} disabled={controlsDisabled} className="rounded-lg border border-amber-300/30 px-3 py-2 text-sm font-semibold text-amber-200 disabled:opacity-50">Paste product information</button> : null}
         </div>
 
         <div className="mt-6 flex flex-wrap gap-3">

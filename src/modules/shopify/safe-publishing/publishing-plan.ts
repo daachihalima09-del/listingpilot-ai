@@ -4,6 +4,7 @@ import type { EffectiveMerchantPreferences } from '../../merchant-preferences/ef
 import type { ListingDraft } from '../../listing-draft/domain/contracts.ts';
 import type { AssembledShopifyListing } from '../content/shopify-description.ts';
 import type { ShopifyChangeReviewPayload, ShopifyReviewField } from '../review/review-types.ts';
+import { productEvidenceIsCurrent } from '../../products/analysis/analysis-state.ts';
 
 export const publishingPlanModes = ['UPDATE_EXISTING', 'CREATE_NEW', 'BLOCKED'] as const;
 export const duplicateAssessmentResults = [
@@ -128,8 +129,10 @@ export function isPublishingPlanContentCurrent(input: Readonly<{
   planProductVersion: number;
   currentDraft: ListingDraft | null;
   planDraftFingerprint: string;
+  readinessData?: unknown;
 }>): boolean {
-  return input.productVersion === input.planProductVersion
+  return productEvidenceIsCurrent(input.readinessData)
+    && input.productVersion === input.planProductVersion
     && (input.currentDraft
       ? publishingDraftFingerprint(input.currentDraft)
       : stableFingerprint(null)) === input.planDraftFingerprint;
@@ -146,9 +149,11 @@ export function eligibilityBlockers(input: {
   projectVersion: number;
   connected: boolean;
   preferences: EffectiveMerchantPreferences;
+  readinessData?: unknown;
 }): string[] {
   const blockers: string[] = [];
   if (input.role !== 'OWNER') blockers.push('Only the workspace owner can prepare Shopify changes.');
+  if (!productEvidenceIsCurrent(input.readinessData)) blockers.push('Analyze the current product information and generate a new listing before preparing for Shopify. Your previous work is preserved.');
   if (!input.draft || input.draft.status !== 'SAVED') blockers.push('Save the Listing Draft before preparing for Shopify.');
   if (input.draft && !requiredReviewSectionsComplete(input.draft)) blockers.push('Review the required listing sections before preparing for Shopify.');
   if (input.draft?.reviewWorkspace?.craft?.status === 'REJECTED') blockers.push('Resolve rejected Craft compliance findings before publishing.');

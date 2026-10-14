@@ -135,6 +135,8 @@ export const projectSeoDataSchema = z.object({
 
 export const projectReadinessDataSchema = z.object({
   analysisStarted: z.boolean(),
+  analysisPending: z.boolean().optional(),
+  listingEvidenceStale: z.boolean().optional(),
   activeStage: z.enum(pipelineStages),
   completedStages: z.array(z.enum(pipelineStages)).max(pipelineStages.length),
   shopifyReady: z.boolean(),

@@ -14,14 +14,17 @@ const FETCH_TIMEOUT_MS = 20_000;
 
 export class ProductPageExtractionError extends Error {
   readonly status: 422 | 502 | 504;
+  readonly upstreamStatus?: number;
 
   constructor(
     message: string,
     status: 422 | 502 | 504 = 422,
+    upstreamStatus?: number,
   ) {
     super(message);
     this.name = 'ProductPageExtractionError';
     this.status = status;
+    this.upstreamStatus = upstreamStatus;
   }
 }
 
@@ -339,7 +342,7 @@ export async function extractProductPage(urlValue: string, requestSignal?: Abort
 
       if (statusCode < 200 || statusCode >= 300) {
         response.destroy();
-        throw new ProductPageExtractionError(`The product page could not be read (HTTP ${statusCode}).`, 502);
+        throw new ProductPageExtractionError(`The product page could not be read (HTTP ${statusCode}).`, 502, statusCode);
       }
 
       const contentType = getHeader(response.headers, 'content-type')?.toLowerCase() ?? '';

@@ -177,6 +177,13 @@ export async function publishShopifyProject(
       409,
     );
   }
+  if (authorized.evidenceCurrent === false) {
+    throw new ShopifyPublicationError(
+      'SHOPIFY_PUBLICATION_EVIDENCE_STALE',
+      'Analyze the current product information and generate a new listing before publishing. Your previous work is preserved.',
+      409,
+    );
+  }
   if (!authorized.publication && authorized.importedProductLink) {
     throw new ShopifyPublicationError(
       'SHOPIFY_PUBLICATION_LINK_CONFLICT',

@@ -7,6 +7,7 @@ export interface ShopifyPublicationProjectContext {
   workspaceId: string;
   projectId: string;
   role: 'OWNER' | 'ADMIN' | 'MEMBER' | 'VIEWER';
+  evidenceCurrent?: boolean;
   publication: ShopifyPublishedProductReference | null;
   importedProductLink?: {
     valid: boolean;

@@ -59,6 +59,8 @@ export function generatedListingReadiness(
 ): ProjectReadinessData {
   return {
     analysisStarted: true,
+    analysisPending: false,
+    listingEvidenceStale: false,
     activeStage: 'review',
     completedStages: [...new Set([...(current?.completedStages ?? []), 'generate'] as const)],
     shopifyReady: false,

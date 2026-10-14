@@ -23,6 +23,7 @@ import {
   demoProductSpecifications,
 } from '@/data/demo-product';
 import type { ProductAnalysis } from '@/lib/analysis-schema';
+import { sourceHasChanged, type ProductSourceState } from '@/modules/products/analysis/analysis-state';
 import type {
   CanonicalGenerationEligibility,
   GenerationEligibilityFinding,
@@ -117,55 +118,15 @@ const GENERATION_TIMEOUT_MS = 90_000;
 
 class AnalysisRequestError extends Error {}
 
-interface AnalysisSourceOptions {
-  name: string;
-  type: string;
-  noConflictExplanation: string;
-}
-
-function buildAnalyzedProduct(analysis: ProductAnalysis, source: AnalysisSourceOptions): DemoProduct {
-  const score = analysis.overallConfidence;
-  const label = score >= 90 ? 'Excellent' : score >= 75 ? 'Good' : 'Needs review';
-  const conflict = analysis.conflict;
-
-  return {
-    ...analysis.product,
-    truthRows: analysis.truthRows,
-    sources: [
-      {
-        name: source.name,
-        type: source.type,
-        confidence: score,
-        status: 'Review',
-      },
-    ],
-    conflict: {
-      label: conflict?.field ?? '',
-      official: conflict?.values[0] ?? '',
-      amazon: conflict?.values[1] ?? '',
-      lg: conflict?.recommendedValue ?? '',
-      recommendation: conflict ? `Use ${conflict.recommendedValue}` : '',
-      recommendedValue: conflict?.recommendedValue ?? '',
-      explanation: conflict?.explanation ?? source.noConflictExplanation,
-    },
-    catalogHealth: {
-      score,
-      label,
-      items: [
-        { name: 'Product facts', status: analysis.missingFields.length || conflict ? 'warning' : 'good' },
-        { name: 'Description', status: analysis.listing.description ? 'good' : 'warning' },
-        { name: 'SEO', status: analysis.listing.seoTitle && analysis.listing.seoDescription ? 'good' : 'warning' },
-        { name: 'Images', status: 'warning' },
-        { name: 'Variants', status: 'warning' },
-      ],
-    },
-    analyses: [
-      {
-        title: [analysis.product.brand, analysis.product.model].filter((value) => value && value !== 'Missing').join(' ') || 'Analyzed product',
-        status: analysis.missingFields.length ? 'Review' : 'Completed',
-        score,
-      },
-    ],
+interface AnalysisSuccessResponse extends ProductAnalysis {
+  imageDiscoveryWarning?: string;
+  savedProduct: {
+    version: number;
+    updatedAt: string;
+    analysisData: NonNullable<ProjectSaveSnapshot['analysisData']>;
+    readinessData: NonNullable<ProjectSaveSnapshot['readinessData']>;
+    generatedListing: ProjectSaveSnapshot['generatedListing'];
+    seoData: ProjectSaveSnapshot['seoData'];
   };
 }
 
@@ -200,16 +161,19 @@ function GenerationFindingList({
 function GenerationEligibilityPanel({
   eligibility,
   current,
+  pendingAnalysis = false,
   refreshStatus,
   onRetry,
   onReviewProductTruth,
 }: {
   eligibility: CanonicalGenerationEligibility | null;
   current: boolean;
+  pendingAnalysis?: boolean;
   refreshStatus: EligibilityRefreshStatus;
   onRetry: () => void;
   onReviewProductTruth: () => void;
 }) {
+  if (pendingAnalysis) return <div role="status" className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.06] p-4 text-sm text-amber-100">Analyze the updated Product information to refresh listing readiness. Your previous analysis and listing are preserved.</div>;
   if (!current) {
     if (refreshStatus === 'error') {
       return (
@@ -404,7 +368,7 @@ export function ListingWorkspace({
     analysisStarted && (initialHasConflict || conflictResolved),
   );
   const [recommendationConfidence, setRecommendationConfidence] = useState(
-    truthRows.find((row) => row.status === 'Conflict')?.confidence
+    truthRows.find((row) => row.field === restoredProduct.conflict.label)?.confidence
       ?? restoredProduct.catalogHealth.score,
   );
   const [reducedMotion, setReducedMotion] = useState(false);
@@ -427,6 +391,15 @@ export function ListingWorkspace({
   );
   const [selectedPdf, setSelectedPdf] = useState<File | null>(null);
   const [inputError, setInputError] = useState<string | null>(null);
+  const [canPasteAfterAccessDenied, setCanPasteAfterAccessDenied] = useState(false);
+  const [analysisAutosavePaused, setAnalysisAutosavePaused] = useState(false);
+  const [persistedAnalysisPending, setPersistedAnalysisPending] = useState(Boolean(restoredReadiness?.analysisPending));
+  const [listingEvidenceStale, setListingEvidenceStale] = useState(Boolean(restoredReadiness?.listingEvidenceStale));
+  const [analyzedSource, setAnalyzedSource] = useState<ProductSourceState>({
+    sourceType: initialProject?.sourceType ?? null,
+    sourceUrl: initialProject?.sourceUrl ?? null,
+    rawInput: initialProject?.rawInput ?? null,
+  });
   const [analysisContext, setAnalysisContext] = useState<DemoAnalysisContext | null>(
     restoredAnalysis?.analysisContext ?? null,
   );
@@ -535,39 +508,14 @@ export function ListingWorkspace({
     return false;
   }, [inputMode, productUrl, specText, supplierUrl]);
 
-  const resetAnalysisResults = () => {
-    setAnalysisStarted(false);
-    setActiveStage('input');
-    setCompletedStages([]);
-    setIsRunning(false);
-    setHasConflict(false);
-    setConflictResolved(false);
-    setVisibleRows(0);
-    setShowSources(0);
-    setShowRecommendation(false);
-    setRecommendationConfidence(0);
-  };
-
-  const invalidateDerivedProductState = () => {
-    resetAnalysisResults();
-    setActiveProduct(emptyProduct);
-    setTruthRows(emptyProduct.truthRows);
-    setAnalysisContext(null);
-    setListingContent(emptyListingContent);
-    setListingDraft(null);
-    setGenerationEligibility(null);
-    setGenerationEligibilityVersion(null);
-    setEligibilityRefreshStatus('idle');
-    setDraftError(null);
-  };
-
   const handleModeChange = (mode: typeof inputMode) => {
     if (isReadOnly) {
       return;
     }
-    if (mode !== inputMode) invalidateDerivedProductState();
     setInputMode(mode);
+    if (mode !== inputMode && analysisStarted) setPersistedAnalysisPending(true);
     setInputError(null);
+    setCanPasteAfterAccessDenied(false);
   };
 
   const handleUrlChange = (mode: 'url' | 'product', value: string) => {
@@ -576,10 +524,10 @@ export function ListingWorkspace({
     }
     const normalizedValue = normalizePastedHttpUrl(value);
     if (mode === 'url') {
-      if (normalizedValue !== supplierUrl) invalidateDerivedProductState();
+      if (normalizedValue !== supplierUrl && analysisStarted) setPersistedAnalysisPending(true);
       setSupplierUrl(normalizedValue);
     } else {
-      if (normalizedValue !== productUrl) invalidateDerivedProductState();
+      if (normalizedValue !== productUrl && analysisStarted) setPersistedAnalysisPending(true);
       setProductUrl(normalizedValue);
     }
     setInputError(null);
@@ -590,7 +538,6 @@ export function ListingWorkspace({
       return;
     }
     if (!file) {
-      if (selectedPdf) invalidateDerivedProductState();
       setSelectedPdf(null);
       setInputError(null);
       return;
@@ -602,9 +549,6 @@ export function ListingWorkspace({
       return;
     }
 
-    if (file.name !== selectedPdf?.name || file.size !== selectedPdf.size) {
-      invalidateDerivedProductState();
-    }
     setSelectedPdf(file);
     setInputError(null);
   };
@@ -641,23 +585,6 @@ export function ListingWorkspace({
     return { kind: 'uploaded-pdf', filename: selectedPdf.name };
   };
 
-  const startPipeline = (
-    product: DemoProduct,
-    listing: ReturnType<typeof buildDemoListingContent>,
-    context: DemoAnalysisContext,
-  ) => {
-    setActiveProduct(product);
-    setTruthRows(product.truthRows);
-    setListingContent((current) => initialProject
-      ? listingDraft ? current : emptyListingContent
-      : listing);
-    setAnalysisContext(context);
-    setAnalysisStarted(true);
-    setActiveStage('input');
-    setCompletedStages([]);
-    setIsRunning(true);
-  };
-
   const handleAnalyze = async () => {
     if (isReadOnly || analysisRequestRef.current || isRunning) {
       return;
@@ -674,7 +601,7 @@ export function ListingWorkspace({
     }
 
     setInputError(null);
-    resetAnalysisResults();
+    setCanPasteAfterAccessDenied(false);
 
     setIsSubmitting(true);
     const requestController = new AbortController();
@@ -682,11 +609,16 @@ export function ListingWorkspace({
     const requestTimeout = window.setTimeout(() => requestController.abort(), 85_000);
 
     try {
+      const savedVersion = await projectSave.saveNow();
+      if (savedVersion === null) throw new AnalysisRequestError('Save the Product changes successfully before analyzing.');
+      const drainedVersion = projectSave.pauseAndDrain();
+      setAnalysisAutosavePaused(true);
+      const analysisVersion = await drainedVersion;
       const productIdentity = initialProject?.containerProjectId ? {
         workspaceId: initialProject.workspaceId,
         projectId: initialProject.containerProjectId,
         productId: initialProject.id,
-        version: projectSave.currentVersion,
+        version: analysisVersion,
       } : null;
       if (!productIdentity) {
         throw new AnalysisRequestError('Open a Product workspace before running analysis.');
@@ -705,50 +637,56 @@ export function ListingWorkspace({
         body: JSON.stringify(requestBody),
         signal: requestController.signal,
       });
-      let payload: (ProductAnalysis & { imageDiscoveryWarning?: string }) | { error?: string };
+      let payload: AnalysisSuccessResponse | { error?: string; code?: string; recoveryAction?: string };
       try {
         const decodedPayload = await response.json() as unknown;
         if (!decodedPayload || typeof decodedPayload !== 'object' || Array.isArray(decodedPayload)) {
           throw new Error('INVALID_RESPONSE');
         }
-        payload = decodedPayload as (ProductAnalysis & { imageDiscoveryWarning?: string }) | { error?: string };
+        payload = decodedPayload as typeof payload;
       } catch {
         throw new AnalysisRequestError('The analysis service returned an invalid response. Please try again.');
       }
 
       if (!response.ok || 'error' in payload) {
+        if ('recoveryAction' in payload && payload.recoveryAction === 'PASTE_PRODUCT_INFORMATION') setCanPasteAfterAccessDenied(true);
         throw new AnalysisRequestError('error' in payload && payload.error
           ? payload.error
           : 'Unable to analyze the product input.');
       }
 
-      const analysis = payload as ProductAnalysis & { imageDiscoveryWarning?: string };
-      const sourceName = analysisInput.kind === 'raw-specifications'
-        ? 'Pasted specifications'
-        : analysisInput.url;
-      const sourceType = analysisInput.kind === 'raw-specifications'
-        ? 'User input'
-        : analysisInput.kind === 'supplier-url' ? 'Supplier URL' : 'Product URL';
-      const product = buildAnalyzedProduct(
-        analysis,
-        {
-          name: sourceName,
-          type: sourceType,
-          noConflictExplanation: `No conflicting values were found in the ${sourceType.toLowerCase()}.`,
-        },
+      const analysis = payload as AnalysisSuccessResponse;
+      const saved = analysis.savedProduct;
+      if (!saved?.analysisData || !saved.readinessData || !Number.isInteger(saved.version)) {
+        throw new AnalysisRequestError('The saved analysis could not be confirmed. Refresh this Product before trying again.');
+      }
+      const savedSnapshot: ProjectSaveSnapshot = {
+        ...sourceState, analysisData: saved.analysisData, generatedListing: saved.generatedListing,
+        seoData: saved.seoData, readinessData: saved.readinessData,
+      };
+      projectSave.adoptExternalSave(saved.version, savedSnapshot);
+      setAnalyzedSource(sourceState);
+      setPersistedAnalysisPending(false);
+      setListingEvidenceStale(Boolean(saved.readinessData.listingEvidenceStale));
+      setActiveProduct(saved.analysisData.activeProduct);
+      setTruthRows(saved.analysisData.truthRows);
+      setAnalysisContext(saved.analysisData.analysisContext);
+      setConflictResolved(saved.analysisData.conflictResolved);
+      setAnalysisStarted(true);
+      setActiveStage(saved.readinessData.activeStage);
+      setCompletedStages(saved.readinessData.completedStages);
+      setIsRunning(false);
+      setVisibleRows(saved.analysisData.truthRows.length);
+      setShowSources(saved.analysisData.activeProduct.sources.length);
+      const analysisHasConflict = saved.analysisData.truthRows.some((row) => row.status === 'Conflict');
+      setHasConflict(analysisHasConflict);
+      setShowRecommendation(analysisHasConflict || saved.analysisData.conflictResolved);
+      setRecommendationConfidence(
+        saved.analysisData.truthRows.find((row) => row.field === saved.analysisData.activeProduct.conflict.label)?.confidence
+          ?? saved.analysisData.activeProduct.catalogHealth.score,
       );
-      startPipeline(
-        product,
-        analysis.listing,
-        {
-          sourceLabel: analysisInput.kind === 'raw-specifications'
-            ? 'Raw specifications'
-            : analysisInput.kind === 'supplier-url' ? 'Supplier URL' : 'Product URL',
-          notice: analysisInput.kind === 'raw-specifications'
-            ? 'OpenAI analysis generated from the supplied raw specifications'
-            : `OpenAI analysis generated from the extracted ${sourceType.toLowerCase()}`,
-        },
-      );
+      setGenerationEligibilityVersion(null);
+      setEligibilityRefreshStatus('idle');
       if ('imageDiscoveryWarning' in analysis && analysis.imageDiscoveryWarning) {
         setInputError(analysis.imageDiscoveryWarning);
       }
@@ -759,6 +697,8 @@ export function ListingWorkspace({
           ? error.message
           : 'Unable to analyze the product input. Please try again.');
     } finally {
+      projectSave.resume();
+      setAnalysisAutosavePaused(false);
       window.clearTimeout(requestTimeout);
       if (analysisRequestRef.current === requestController) {
         analysisRequestRef.current = null;
@@ -769,7 +709,8 @@ export function ListingWorkspace({
 
   const handleResolveConflict = () => {
     if (
-      isReadOnly
+      conflictResolutionReadOnly
+      || analysisRequestRef.current
       || !activeProduct.conflict.label
       || !activeProduct.conflict.recommendedValue
     ) {
@@ -836,39 +777,28 @@ export function ListingWorkspace({
   }, [initialProject, listingContent, listingDraft, truthRows]);
   const verifiedFactCount = truthRows.filter((row) => row.status === 'Verified').length;
   const hasBlockingFact = truthRows.some((row) => row.status === 'Conflict');
+  const sourceState = useMemo<ProductSourceState>(() => ({
+    sourceType: inputMode === 'url' ? supplierUrl.trim() ? 'SUPPLIER_URL' : null
+      : inputMode === 'product' ? productUrl.trim() ? 'PRODUCT_URL' : null
+        : inputMode === 'pdf' ? selectedPdf || initialProject?.sourceType === 'UPLOADED_PDF' ? 'UPLOADED_PDF' : null
+          : specText.trim() ? 'RAW_SPECIFICATIONS' : null,
+    sourceUrl: inputMode === 'url' ? supplierUrl.trim() || null : inputMode === 'product' ? productUrl.trim() || null : null,
+    rawInput: inputMode === 'specs' ? specText : inputMode === 'pdf' ? selectedPdf?.name ?? initialProject?.rawInput ?? null : null,
+  }), [inputMode, supplierUrl, productUrl, selectedPdf, specText, initialProject?.sourceType, initialProject?.rawInput]);
+  const analysisNeedsRefresh = Boolean(analysisStarted && (persistedAnalysisPending || sourceHasChanged(analyzedSource, sourceState)));
+  const retainedDraftNeedsReplacement = analysisNeedsRefresh || listingEvidenceStale;
   const exportReady = Boolean(
     verifiedFactCount
+    && !retainedDraftNeedsReplacement
     && !hasBlockingFact
     && (listingDraft?.title.value.trim() || (!initialProject && listingContent.title.trim()))
     && (listingDraft?.overview.value.trim() || (!initialProject && listingContent.description.trim())),
   );
 
   const projectSnapshot = useMemo<ProjectSaveSnapshot>(() => {
-    const sourceType = inputMode === 'url'
-      ? supplierUrl.trim() ? 'SUPPLIER_URL' as const : null
-      : inputMode === 'product'
-        ? productUrl.trim() ? 'PRODUCT_URL' as const : null
-        : inputMode === 'pdf'
-          ? selectedPdf || initialProject?.sourceType === 'UPLOADED_PDF'
-            ? 'UPLOADED_PDF' as const
-            : null
-          : specText.trim() ? 'RAW_SPECIFICATIONS' as const : null;
-    const sourceUrl = inputMode === 'url'
-      ? supplierUrl.trim() || null
-      : inputMode === 'product'
-        ? productUrl.trim() || null
-        : null;
-    const rawInput = inputMode === 'specs'
-      ? specText
-      : inputMode === 'pdf'
-        ? selectedPdf?.name ?? initialProject?.rawInput ?? null
-        : null;
-
     const persistedDraftFields = listingDraft ? listingDraftProjectFields(listingDraft) : null;
     return {
-      sourceType,
-      sourceUrl,
-      rawInput,
+      ...sourceState,
       analysisData: analysisStarted
         ? {
             activeProduct: currentProduct,
@@ -881,6 +811,8 @@ export function ListingWorkspace({
       seoData: persistedDraftFields?.seoData ?? null,
       readinessData: {
         analysisStarted,
+        analysisPending: analysisNeedsRefresh,
+        listingEvidenceStale,
         activeStage,
         completedStages,
         shopifyReady: exportReady,
@@ -893,22 +825,23 @@ export function ListingWorkspace({
     analysisStarted,
     completedStages,
     conflictResolved,
-    initialProject?.rawInput,
-    initialProject?.sourceType,
-    inputMode,
+    sourceState,
+    analysisNeedsRefresh,
+    listingEvidenceStale,
     listingDraft,
-    productUrl,
-    selectedPdf,
     exportReady,
-    specText,
-    supplierUrl,
     truthRows,
   ]);
   const projectSave = useProjectAutosave({
     project: initialProject ?? null,
     snapshot: projectSnapshot,
     enabled: Boolean(initialProject && canManage && initialProject.status !== 'ARCHIVED'),
+    paused: analysisAutosavePaused,
   });
+  // A retained draft stays locked, but its current saved replacement analysis
+  // must remain reviewable so conflicts can be resolved before fresh generation.
+  const conflictResolutionReadOnly = isReadOnly || !analysisStarted || analysisNeedsRefresh
+    || isSubmitting || projectSave.status === 'conflict';
   const projectId = initialProject?.id;
   const projectWorkspaceId = initialProject?.workspaceId;
   useEffect(() => {
@@ -927,7 +860,9 @@ export function ListingWorkspace({
       !projectId
       || !projectWorkspaceId
       || !analysisStarted
-      || listingDraft
+      || analysisNeedsRefresh
+      || isSubmitting
+      || (listingDraft && !listingEvidenceStale)
       || generationEligibilityVersion === projectSave.currentVersion
     ) return;
 
@@ -965,6 +900,9 @@ export function ListingWorkspace({
     });
   }, [
     analysisStarted,
+    analysisNeedsRefresh,
+    isSubmitting,
+    listingEvidenceStale,
     eligibilityRetryToken,
     generationEligibilityVersion,
     projectId,
@@ -980,6 +918,8 @@ export function ListingWorkspace({
   );
   const canGenerateListing = Boolean(
     analysisStarted
+    && !analysisNeedsRefresh
+    && !isSubmitting
     && generationEligibilityCurrent
     && generationEligibility?.canGenerate,
   );
@@ -1033,6 +973,7 @@ export function ListingWorkspace({
       };
       setListingContent(nextContent);
       setListingDraft(response.draft);
+      setListingEvidenceStale(false);
       setActiveStage(response.readinessData.activeStage);
       setCompletedStages(response.readinessData.completedStages);
       projectSave.adoptExternalSave(response.project.version, savedSnapshot);
@@ -1058,7 +999,7 @@ export function ListingWorkspace({
   };
 
   const handleSaveDraft = async (): Promise<boolean> => {
-    if (!initialProject || !listingDraft || isReadOnly) return false;
+    if (!initialProject || !listingDraft || isReadOnly || retainedDraftNeedsReplacement) return false;
     setDraftError(null);
     setIsSavingDraft(true);
     try {
@@ -1192,7 +1133,7 @@ export function ListingWorkspace({
     && listingDraft.metadata.listingProfileFingerprint !== listingStyle.fingerprint,
   );
   const showProjectEntry = shouldShowProjectEntry(initialProject, analysisStarted);
-  const publishingReviewComplete = ['TITLE', 'OVERVIEW', 'SPECIFICATIONS', 'FEATURES', 'SEO', 'CATALOG'].every((section) => listingDraft?.reviewWorkspace?.reviewedSections.includes(section as never));
+  const publishingReviewComplete = !retainedDraftNeedsReplacement && ['TITLE', 'OVERVIEW', 'SPECIFICATIONS', 'FEATURES', 'SEO', 'CATALOG'].every((section) => listingDraft?.reviewWorkspace?.reviewedSections.includes(section as never));
   const workflowProgress: Partial<Record<WorkspaceTab, boolean>> = {
     OVERVIEW: analysisStarted,
     LISTING: listingDraft?.status === 'SAVED' && publishingReviewComplete,
@@ -1200,9 +1141,9 @@ export function ListingWorkspace({
     METAFIELDS: Boolean(shopifyMetafields?.configuration.version),
     SHOPIFY: Boolean(shopifyPublishing?.publication),
   };
-  const primaryAction = !analysisStarted
+  const primaryAction = !analysisStarted || analysisNeedsRefresh
     ? { label: 'Analyze Product', tab: 'ADVANCED' as const }
-    : !listingDraft
+    : !listingDraft || listingEvidenceStale
       ? generationEligibilityCurrent && !generationEligibility?.canGenerate
         ? { label: 'Review blockers', tab: 'LISTING' as const }
         : { label: 'Generate Listing', tab: 'LISTING' as const }
@@ -1323,6 +1264,7 @@ export function ListingWorkspace({
             </div>
           ) : null}
 
+          {retainedDraftNeedsReplacement ? <div role="status" className="mt-4 rounded-xl border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-sm text-amber-100"><p>{analysisNeedsRefresh ? 'Product information changed. Your previous analysis and listing are preserved. Analyze the updated information before generating or preparing Shopify changes.' : 'Your new analysis is saved. The previous listing is preserved for reference; generate a new listing before approving or preparing Shopify changes.'}</p><button type="button" onClick={() => analysisNeedsRefresh ? setWorkspaceTab('ADVANCED') : void handleGenerateDraft()} disabled={isSubmitting || isGeneratingDraft || (!analysisNeedsRefresh && !canGenerateListing)} className="mt-3 rounded-lg border border-amber-200/25 px-3 py-2 font-semibold disabled:opacity-50">{analysisNeedsRefresh ? 'Review Product information' : isGeneratingDraft ? 'Generating…' : 'Generate new listing'}</button>{draftError ? <p role="alert" className="mt-2 text-rose-200">{draftError}</p> : null}</div> : null}
           {showProjectEntry ? (
             <div className="mx-auto mt-6 w-full max-w-3xl min-w-0">
               <ProductInput
@@ -1335,7 +1277,7 @@ export function ListingWorkspace({
                 canAnalyze={canAnalyze}
                 specText={specText}
                 onSpecTextChange={(value) => {
-                  if (value !== specText) invalidateDerivedProductState();
+                  if (value !== specText && analysisStarted) setPersistedAnalysisPending(true);
                   setSpecText(value);
                   setInputError(null);
                 }}
@@ -1345,6 +1287,7 @@ export function ListingWorkspace({
                 selectedPdf={selectedPdf}
                 onPdfChange={handlePdfChange}
                 inputError={inputError}
+                onPasteProductInformation={canPasteAfterAccessDenied ? () => handleModeChange('specs') : undefined}
                 readOnly={isReadOnly}
               />
             </div>
@@ -1370,7 +1313,7 @@ export function ListingWorkspace({
                     ['Readiness', listingDraft ? 'Ready for review' : !analysisStarted ? 'Needs analysis' : !generationEligibilityCurrent ? 'Checking' : generationEligibility?.canGenerate ? generationEligibility.warnings.length ? 'Ready with warnings' : 'Ready to generate' : 'Needs attention'],
                   ].map(([label, value]) => <div key={label} className="rounded-xl border border-white/10 bg-white/5 p-4"><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-1 font-medium text-white">{value}</dd></div>)}
                 </dl>
-                {analysisStarted && !listingDraft ? <div className="mt-5"><GenerationEligibilityPanel eligibility={generationEligibility} current={generationEligibilityCurrent} refreshStatus={eligibilityRefreshStatus} onRetry={retryGenerationEligibility} onReviewProductTruth={() => selectWorkspaceTab('ADVANCED')} /></div> : null}
+                {analysisStarted && !listingDraft ? <div className="mt-5"><GenerationEligibilityPanel pendingAnalysis={analysisNeedsRefresh} eligibility={generationEligibility} current={generationEligibilityCurrent} refreshStatus={eligibilityRefreshStatus} onRetry={retryGenerationEligibility} onReviewProductTruth={() => selectWorkspaceTab('ADVANCED')} /></div> : null}
                 <div className="mt-6"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Next step</p><button type="button" onClick={() => { if (primaryAction.label === 'Generate Listing') void handleGenerateDraft(); else if (primaryAction.label === 'Analyze Product' && canAnalyze) void handleAnalyze(); else selectWorkspaceTab(primaryAction.tab); }} disabled={isReadOnly || isGeneratingDraft || isSubmitting} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-200 disabled:opacity-50 sm:w-auto"><Sparkles className="h-4 w-4" aria-hidden="true" />{isGeneratingDraft ? 'Generating…' : primaryAction.label}</button></div>
               </div>
             </section>
@@ -1380,8 +1323,8 @@ export function ListingWorkspace({
             <section id="workspace-panel-listing" role="tabpanel" aria-labelledby="workspace-tab-listing" className="mt-6 min-w-0 space-y-6">
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#081423] px-4 py-3"><div><p className="text-xs uppercase tracking-[0.18em] text-slate-500">{listingDraft ? 'Generated with' : 'Listing Style'}</p><p className="mt-1 font-semibold text-white">{listingDraft?.metadata.listingStandardId ? `${listingDraft.metadata.listingStandardId} Standard` : listingStyle?.standardName ?? 'Not configured'}</p><p className="mt-1 text-xs text-slate-400">{listingDraft ? 'Using your saved Listing Style at generation time' : 'Current saved Listing Style will be used.'}</p></div><Link href="/settings/business-profile/listing" className="rounded-xl border border-white/10 px-4 py-2 text-sm font-semibold text-amber-100 hover:bg-white/5">View Listing Style</Link></div>
               {listingStyleChanged ? <div role="alert" className="rounded-2xl border border-amber-300/25 bg-amber-300/[0.08] p-4"><p className="font-semibold text-amber-100">Your Listing Style changed after this draft was generated.</p><p className="mt-1 text-sm text-slate-300">The existing draft is unchanged. Generate a new draft to apply the latest preferences.</p><button type="button" onClick={handleGenerateDraft} disabled={isGeneratingDraft || isReadOnly} className="mt-3 rounded-xl bg-amber-300 px-4 py-2.5 text-sm font-semibold text-slate-950 disabled:opacity-50">Generate New Draft</button></div> : null}
-              {initialProject && !listingDraft ? <><GenerationEligibilityPanel eligibility={generationEligibility} current={generationEligibilityCurrent} refreshStatus={eligibilityRefreshStatus} onRetry={retryGenerationEligibility} onReviewProductTruth={() => selectWorkspaceTab('ADVANCED')} /><section className="rounded-2xl border border-white/10 bg-[#081423] p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold text-white">Listing Draft</h2><p className="mt-1 text-sm text-slate-400">{isGeneratingDraft ? 'Generating content…' : 'No listing generated yet.'}</p>{isGeneratingDraft ? <div role="status" aria-live="polite" className="mt-3 space-y-2 text-sm"><p className="text-emerald-200">✓ Preparing verified Product information</p><p className="text-emerald-200">✓ Applying {listingStyle?.standardName ?? 'your Listing Standard'}</p><p className="font-medium text-amber-100">Generating content…</p><p className="text-slate-400">Fact checks, quality checks, and saving will follow before the listing appears.</p></div> : null}</div><button type="button" onClick={handleGenerateDraft} disabled={isReadOnly || isGeneratingDraft || !canGenerateListing} className="rounded-xl bg-amber-300 px-5 py-2.5 text-sm font-semibold text-slate-950 disabled:opacity-50">{isGeneratingDraft ? 'Generating…' : 'Generate Listing'}</button></div>{draftError ? <div role="alert" className="mt-4 rounded-xl bg-rose-400/10 p-4 text-sm text-rose-100"><p>{draftError}</p><button type="button" onClick={handleGenerateDraft} disabled={isGeneratingDraft || !canGenerateListing} className="mt-3 rounded-lg border border-rose-200/20 px-3 py-2 text-xs font-semibold hover:bg-rose-200/10 disabled:opacity-50">Retry</button></div> : null}</section></> : null}
-              {listingDraft ? <><div role="status" className="rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.06] px-4 py-3 text-sm text-emerald-100">&#10003; Listing generated and quality checked</div><ListingDraftReview view="LISTING" draft={listingDraft} onChange={setListingDraft} onSave={handleSaveDraft} onRegenerate={handleRegenerateDraft} saving={isSavingDraft} regenerating={regeneratingSection} autosaveStatus={projectSave.message} readOnly={isReadOnly} error={draftError} onAddToGoldLibrary={canManage ? handleAddToGoldLibrary : undefined} addingToGoldLibrary={isAddingGoldFixture} onContinue={() => selectWorkspaceTab('IMAGES')} pricingAndVariants={initialProject && shopifyVariants ? <ShopifyVariantsPanel key={`variants-${shopifyPanelGeneration}`} projectId={initialProject.id} configured={shopifyVariants.configured} connected={shopifyVariants.connected} canManage={shopifyVariants.canManage} hasPublishedProduct={hasPublishedShopifyProduct} initialConfiguration={shopifyVariants.configuration} /> : undefined} /></> : null}
+              {initialProject && !listingDraft ? <><GenerationEligibilityPanel pendingAnalysis={analysisNeedsRefresh} eligibility={generationEligibility} current={generationEligibilityCurrent} refreshStatus={eligibilityRefreshStatus} onRetry={retryGenerationEligibility} onReviewProductTruth={() => selectWorkspaceTab('ADVANCED')} /><section className="rounded-2xl border border-white/10 bg-[#081423] p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold text-white">Listing Draft</h2><p className="mt-1 text-sm text-slate-400">{isGeneratingDraft ? 'Generating content…' : 'No listing generated yet.'}</p>{isGeneratingDraft ? <div role="status" aria-live="polite" className="mt-3 space-y-2 text-sm"><p className="text-emerald-200">✓ Preparing verified Product information</p><p className="text-emerald-200">✓ Applying {listingStyle?.standardName ?? 'your Listing Standard'}</p><p className="font-medium text-amber-100">Generating content…</p><p className="text-slate-400">Fact checks, quality checks, and saving will follow before the listing appears.</p></div> : null}</div><button type="button" onClick={handleGenerateDraft} disabled={isReadOnly || isGeneratingDraft || !canGenerateListing} className="rounded-xl bg-amber-300 px-5 py-2.5 text-sm font-semibold text-slate-950 disabled:opacity-50">{isGeneratingDraft ? 'Generating…' : 'Generate Listing'}</button></div>{draftError ? <div role="alert" className="mt-4 rounded-xl bg-rose-400/10 p-4 text-sm text-rose-100"><p>{draftError}</p><button type="button" onClick={handleGenerateDraft} disabled={isGeneratingDraft || !canGenerateListing} className="mt-3 rounded-lg border border-rose-200/20 px-3 py-2 text-xs font-semibold hover:bg-rose-200/10 disabled:opacity-50">Retry</button></div> : null}</section></> : null}
+              {listingDraft ? <><div role="status" className="rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.06] px-4 py-3 text-sm text-emerald-100">{retainedDraftNeedsReplacement ? 'Previous listing preserved — replacement required' : '✓ Listing generated and quality checked'}</div><ListingDraftReview view="LISTING" draft={listingDraft} onChange={setListingDraft} onSave={handleSaveDraft} onRegenerate={handleRegenerateDraft} saving={isSavingDraft} regenerating={regeneratingSection} autosaveStatus={projectSave.message} readOnly={isReadOnly || retainedDraftNeedsReplacement || isSubmitting} error={draftError} onAddToGoldLibrary={canManage ? handleAddToGoldLibrary : undefined} addingToGoldLibrary={isAddingGoldFixture} onContinue={() => selectWorkspaceTab('IMAGES')} pricingAndVariants={initialProject && shopifyVariants ? <ShopifyVariantsPanel key={`variants-${shopifyPanelGeneration}`} projectId={initialProject.id} configured={shopifyVariants.configured} connected={shopifyVariants.connected} canManage={shopifyVariants.canManage} hasPublishedProduct={hasPublishedShopifyProduct} initialConfiguration={shopifyVariants.configuration} /> : undefined} /></> : null}
             </section>
           ) : null}
 
@@ -1389,9 +1332,9 @@ export function ListingWorkspace({
 
           {workspaceTab === 'METAFIELDS' && initialProject && shopifyMetafields ? <div id="workspace-panel-metafields" role="tabpanel" aria-labelledby="workspace-tab-metafields" className="mt-6"><ShopifyMetafieldsPanel key={`metafields-${shopifyPanelGeneration}`} projectId={initialProject.id} configured={shopifyMetafields.configured} connected={shopifyMetafields.connected} canManage={shopifyMetafields.canManage} hasPublishedProduct={hasPublishedShopifyProduct} initialConfiguration={shopifyMetafields.configuration} onNext={() => selectWorkspaceTab('SHOPIFY')} /></div> : null}
 
-        {workspaceTab === 'SHOPIFY' ? <div id="workspace-panel-shopify" role="tabpanel" aria-labelledby="workspace-tab-shopify" className="mt-6">{shopifyListingPreview && listingDraft && productWorkspaceBase ? <ShopifyProductReview listing={shopifyListingPreview} draft={listingDraft} images={shopifyImages?.configuration ?? null} variants={shopifyVariants?.configuration ?? null} metafields={shopifyMetafields?.configuration ?? null} publishing={shopifyPublishing} storeName={shopifyStoreName} reviewComplete={publishingReviewComplete} onEdit={selectWorkspaceTab} publishHref={`${productWorkspaceBase}/shopify-publish`} /> : <section className="rounded-[1.75rem] border border-white/10 bg-[#081423] p-5 sm:p-7"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Shopify</p><h2 className="mt-2 text-2xl font-semibold text-white">Generate a listing to review the complete Product</h2><p className="mt-2 text-sm leading-6 text-slate-400">The Shopify review will use the saved listing, images, organization, variants, metafields, and SEO. Nothing is published here.</p></section>}</div> : null}
+        {workspaceTab === 'SHOPIFY' ? <div id="workspace-panel-shopify" role="tabpanel" aria-labelledby="workspace-tab-shopify" className="mt-6">{shopifyListingPreview && listingDraft && productWorkspaceBase && !retainedDraftNeedsReplacement ? <ShopifyProductReview listing={shopifyListingPreview} draft={listingDraft} images={shopifyImages?.configuration ?? null} variants={shopifyVariants?.configuration ?? null} metafields={shopifyMetafields?.configuration ?? null} publishing={shopifyPublishing} storeName={shopifyStoreName} reviewComplete={publishingReviewComplete} onEdit={selectWorkspaceTab} publishHref={`${productWorkspaceBase}/shopify-publish`} /> : <section className="rounded-[1.75rem] border border-white/10 bg-[#081423] p-5 sm:p-7"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Shopify</p><h2 className="mt-2 text-2xl font-semibold text-white">Generate a listing to review the complete Product</h2><p className="mt-2 text-sm leading-6 text-slate-400">The Shopify review will use the saved listing, images, organization, variants, metafields, and SEO. Nothing is published here.</p></section>}</div> : null}
 
-          {workspaceTab === 'ADVANCED' ? <section id="workspace-panel-advanced" role="tabpanel" aria-labelledby="workspace-tab-advanced" className="mt-6"><details className="rounded-2xl border border-white/10 bg-[#081423]"><summary className="cursor-pointer px-5 py-4 font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300">Open technical and legacy tools</summary><div className="border-t border-white/10 p-4"><div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+          {workspaceTab === 'ADVANCED' ? <section id="workspace-panel-advanced" role="tabpanel" aria-labelledby="workspace-tab-advanced" className="mt-6"><details open={analysisNeedsRefresh || canPasteAfterAccessDenied || undefined} className="rounded-2xl border border-white/10 bg-[#081423]"><summary className="cursor-pointer px-5 py-4 font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300">Open technical and legacy tools</summary><div className="border-t border-white/10 p-4"><div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
             <div className="min-w-0 space-y-6">
               {shopifyMetafields ? <MetafieldTechnicalDetails configuration={shopifyMetafields.configuration} /> : null}
               <ProductInput
@@ -1403,7 +1346,7 @@ export function ListingWorkspace({
                 canAnalyze={canAnalyze}
                 specText={specText}
                 onSpecTextChange={(value) => {
-                  if (value !== specText) invalidateDerivedProductState();
+                  if (value !== specText && analysisStarted) setPersistedAnalysisPending(true);
                   setSpecText(value);
                   setInputError(null);
                 }}
@@ -1413,6 +1356,7 @@ export function ListingWorkspace({
                 selectedPdf={selectedPdf}
                 onPdfChange={handlePdfChange}
                 inputError={inputError}
+                onPasteProductInformation={canPasteAfterAccessDenied ? () => handleModeChange('specs') : undefined}
                 readOnly={isReadOnly}
               />
 
@@ -1437,7 +1381,7 @@ export function ListingWorkspace({
                     visibleSourcesCount={showSources}
                     recommendationConfidence={recommendationConfidence}
                     showRecommendation={showRecommendation}
-                    readOnly={isReadOnly}
+                    readOnly={conflictResolutionReadOnly}
                   />
                   <CatalogHealth product={{ ...currentProduct, catalogHealth: { ...currentProduct.catalogHealth, score: overview.score, label: overview.label, items: overview.items } }} />
                 </div>
@@ -1534,13 +1478,13 @@ export function ListingWorkspace({
                     saving={isSavingDraft}
                     regenerating={regeneratingSection}
                     autosaveStatus={projectSave.message}
-                    readOnly={isReadOnly}
+                    readOnly={isReadOnly || retainedDraftNeedsReplacement || isSubmitting}
                     error={draftError}
                     onOpenListing={() => selectWorkspaceTab('LISTING')}
                     onAddToGoldLibrary={canManage ? handleAddToGoldLibrary : undefined}
                     addingToGoldLibrary={isAddingGoldFixture}
                   />
-                  {productWorkspaceBase ? <section className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.05] p-5"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-300">Next step</p><h2 className="mt-2 text-xl font-semibold text-white">Prepare for Shopify</h2><p className="mt-2 text-sm leading-6 text-slate-400">Review fresh Shopify values beside the saved ListingPilot proposal before choosing any changes.</p><Link href={`${productWorkspaceBase}/shopify-publish`} className="mt-4 inline-flex rounded-xl bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950">Prepare for Shopify</Link></section> : null}
+                  {productWorkspaceBase && !retainedDraftNeedsReplacement ? <section className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.05] p-5"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-300">Next step</p><h2 className="mt-2 text-xl font-semibold text-white">Prepare for Shopify</h2><p className="mt-2 text-sm leading-6 text-slate-400">Review fresh Shopify values beside the saved ListingPilot proposal before choosing any changes.</p><Link href={`${productWorkspaceBase}/shopify-publish`} className="mt-4 inline-flex rounded-xl bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950">Prepare for Shopify</Link></section> : null}
                 </>
               ) : null}
               {initialProject && shopifyCoordinator ? (
@@ -1548,7 +1492,7 @@ export function ListingWorkspace({
                   projectId={initialProject.id}
                   configured={shopifyCoordinator.configured}
                   connected={shopifyCoordinator.connected}
-                  canManage={shopifyCoordinator.canManage}
+                  canManage={shopifyCoordinator.canManage && !retainedDraftNeedsReplacement && !isSubmitting}
                   initialCoordinator={shopifyCoordinator.coordinator}
                   onCompleted={(result) => {
                     const product = result.steps.find(({ step }) => step === 'PRODUCT');
@@ -1560,7 +1504,7 @@ export function ListingWorkspace({
                   }}
                 />
               ) : null}
-              {initialProject && shopifyPublishing ? (
+              {initialProject && shopifyPublishing && !retainedDraftNeedsReplacement && !isSubmitting ? (
                 <ShopifyPublishingPanel
                   key={`product-${shopifyPanelGeneration}`}
                   projectId={initialProject.id}

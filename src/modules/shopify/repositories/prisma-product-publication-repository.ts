@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { prisma } from '@/lib/prisma';
+import { productEvidenceIsCurrent } from '../../products/analysis/analysis-state';
 import type {
   ShopifyProductPublicationRepository,
 } from '../publishing/publication-repository';
@@ -89,6 +90,7 @@ ShopifyProductPublicationRepository = {
       select: {
         id: true,
         workspaceId: true,
+        readinessData: true,
         workspace: {
           select: {
             organizationId: true,
@@ -125,6 +127,7 @@ ShopifyProductPublicationRepository = {
       workspaceId: project.workspaceId,
       projectId: project.id,
       role: membership.role,
+      evidenceCurrent: productEvidenceIsCurrent(project.readinessData),
       publication: project.shopifyProductPublication
         ? toReference(project.shopifyProductPublication)
         : null,

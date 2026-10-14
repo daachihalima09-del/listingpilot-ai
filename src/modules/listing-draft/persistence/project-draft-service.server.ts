@@ -50,6 +50,9 @@ async function generationContext(actorUserId: string, workspaceId: string, proje
   if (!project.analysisData) {
     throw new ListingDraftError('DRAFT_GENERATION_BLOCKED', 'Analyze the project before generating a listing draft.', 409);
   }
+  if (project.readinessData?.analysisPending) {
+    throw new ListingDraftError('DRAFT_GENERATION_BLOCKED', 'Analyze the replacement Product information before generating a new listing.', 409);
+  }
 
   trace?.start('merchant_profile');
   const preferences = createServerMerchantPreferenceService();
@@ -158,7 +161,7 @@ export async function generateProjectListingDraft(input: {
           readinessData,
         };
         const operation = input.containerProjectId
-          ? saveUserProductState(input.actorUserId, { ...state, projectId: input.containerProjectId, productId: input.projectId })
+          ? saveUserProductState(input.actorUserId, { ...state, projectId: input.containerProjectId, productId: input.projectId }, { refreshListingEvidence: true })
           : saveUserProjectState(input.actorUserId, state);
         return operation.then((project) => {
           input.trace?.complete('persistence');
@@ -182,6 +185,9 @@ export async function saveProjectListingDraft(input: {
   readonly now?: () => string;
 }) {
   const context = await generationContext(input.actorUserId, input.workspaceId, input.projectId, input.containerProjectId);
+  if (context.project.readinessData?.listingEvidenceStale) {
+    throw new ListingDraftError('DRAFT_STALE_WRITE', 'The previous draft is preserved. Generate a new listing from the latest analysis before approving or saving it.', 409);
+  }
   if (context.project.version !== input.version) {
     throw new ListingDraftError('DRAFT_STALE_WRITE', 'A newer project version exists. Refresh before saving this draft.', 409);
   }
@@ -233,6 +239,9 @@ export async function regenerateProjectListingDraft(input: {
   const project = input.containerProjectId
     ? await getUserProduct(input.actorUserId, { workspaceId: input.workspaceId, projectId: input.containerProjectId, productId: input.projectId })
     : await getUserProject(input.actorUserId, { workspaceId: input.workspaceId, projectId: input.projectId });
+  if (project.readinessData?.analysisPending || project.readinessData?.listingEvidenceStale) {
+    throw new ListingDraftError('DRAFT_STALE_WRITE', 'Analyze the current Product information and generate a new listing before regenerating a section.', 409);
+  }
   if (project.version !== input.version) {
     throw new ListingDraftError('DRAFT_STALE_WRITE', 'A newer project version exists. Refresh before regenerating.', 409);
   }

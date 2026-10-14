@@ -10,7 +10,8 @@ import type { DetectedSourceImage } from '@/modules/product-images/source-image-
 import { enforceRateLimit, getAiUsageService } from '@/modules/ai-usage/composition.server';
 import { AiProtectionError, secureKey } from '@/modules/ai-usage/domain';
 import { runReservedAiOperation, type AiOperationLease } from '@/modules/ai-usage/service';
-import { getUserProduct } from '@/modules/products/services/product-service.server';
+import { requireUserProductAnalysisAccess, saveUserProductAnalysis, type ProductDetail } from '@/modules/products/services/product-service.server';
+import { buildProductAnalysisData } from '@/modules/products/analysis/analysis-state';
 import { ProjectError } from '@/modules/projects/types/errors';
 import { productLookupIdentity } from './product-identity';
 
@@ -141,7 +142,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const product = await getUserProduct(user.id, productLookupIdentity(parsedRequest.productIdentity));
+    const product = await requireUserProductAnalysisAccess(user.id, productLookupIdentity(parsedRequest.productIdentity));
     if (product.version !== parsedRequest.productIdentity.version) {
       return NextResponse.json({ error: 'This product changed. Refresh before analyzing again.' }, { status: 409 });
     }
@@ -181,6 +182,12 @@ export async function POST(request: Request) {
     }
   } catch (error) {
     if (error instanceof ProductPageExtractionError) {
+      if (error.upstreamStatus === 403) {
+        return NextResponse.json({
+          error: 'This website blocks automated access. Use Paste product information to analyze specifications you can access. Your saved analysis and listing have been preserved.',
+          code: 'PRODUCT_PAGE_ACCESS_DENIED', recoveryAction: 'PASTE_PRODUCT_INFORMATION',
+        }, { status: 502 });
+      }
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
     return NextResponse.json(
@@ -189,6 +196,7 @@ export async function POST(request: Request) {
     );
   }
   let analysisResult: z.infer<typeof productAnalysisSchema>;
+  let savedProduct: ProductDetail;
   const correlationRequestId = crypto.randomUUID();
   const identity = parsedRequest.productIdentity;
   const sourceFingerprint = secureKey(parsedRequest.source === 'raw-specifications'
@@ -238,10 +246,24 @@ export async function POST(request: Request) {
           reasoningEffort: 'low',
           signal: request.signal,
         });
+        savedProduct = await saveUserProductAnalysis(user.id, {
+          ...identity,
+          sourceType: parsedRequest.source === 'raw-specifications' ? 'RAW_SPECIFICATIONS' : parsedRequest.source === 'supplier-url' ? 'SUPPLIER_URL' : 'PRODUCT_URL',
+          sourceUrl: parsedRequest.source === 'raw-specifications' ? null : parsedRequest.url,
+          rawInput: parsedRequest.source === 'raw-specifications' ? parsedRequest.specifications : null,
+          analysisData: buildProductAnalysisData(result.data, {
+            sourceType: parsedRequest.source === 'raw-specifications' ? 'RAW_SPECIFICATIONS' : parsedRequest.source === 'supplier-url' ? 'SUPPLIER_URL' : 'PRODUCT_URL',
+            sourceUrl: parsedRequest.source === 'raw-specifications' ? null : parsedRequest.url,
+            rawInput: parsedRequest.source === 'raw-specifications' ? parsedRequest.specifications : null,
+          }),
+        });
         return { value: result.data, providerRequestId: result.requestId };
       },
     });
   } catch (error) {
+    if (error instanceof ProjectError) {
+      return NextResponse.json({ error: error.message, code: error.code, requestId: correlationRequestId }, { status: error.statusCode });
+    }
     if (error instanceof AiProtectionError) {
       return NextResponse.json({ error: error.message, code: error.code, requestId: correlationRequestId }, {
         status: error.statusCode,
@@ -286,9 +308,14 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+  const saved = savedProduct!;
+  const responseState = { savedProduct: {
+    version: saved.version, updatedAt: saved.updatedAt.toISOString(), analysisData: saved.analysisData,
+    readinessData: saved.readinessData, generatedListing: saved.generatedListing, seoData: saved.seoData,
+  } };
   if (parsedRequest.source !== 'raw-specifications' && finalSourceUrl) {
     try {
-      await persistDetectedProductImages(user.id, parsedRequest.productIdentity, finalSourceUrl, detectedImages);
+      await persistDetectedProductImages(user.id, productLookupIdentity(parsedRequest.productIdentity), finalSourceUrl, detectedImages);
     } catch (error) {
       console.error('Unable to persist detected Product images', {
         stage: 'product_source_images',
@@ -298,9 +325,10 @@ export async function POST(request: Request) {
       });
       return NextResponse.json({
         ...analysisResult,
+        ...responseState,
         imageDiscoveryWarning: 'Product analysis completed, but source images need to be retried from the Images tab.',
       });
     }
   }
-  return NextResponse.json(analysisResult);
+  return NextResponse.json({ ...analysisResult, ...responseState });
 }

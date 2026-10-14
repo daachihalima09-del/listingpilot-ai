@@ -8,7 +8,8 @@ const read = (path: string) => readFile(new URL(path, root), 'utf8');
 test('analysis authorizes Product identity, rate limits remote work, and reserves usage before provider invocation', async () => {
   const route = await read('app/api/analyze/route.ts');
   assert.ok(route.indexOf('getCurrentUser()') < route.indexOf('readRequestBody(request)'));
-  assert.ok(route.indexOf('getUserProduct(user.id') < route.indexOf('extractProductPage('));
+  const ownerAuthorization = route.indexOf('requireUserProductAnalysisAccess(user.id');
+  assert.ok(ownerAuthorization > 0 && ownerAuthorization < route.indexOf('extractProductPage('));
   assert.ok(route.indexOf("action: 'PRODUCT_ANALYSIS'") < route.indexOf('extractProductPage('));
   assert.ok(route.indexOf("operationType: 'PRODUCT_ANALYSIS'") < route.indexOf('createStructuredResponse({'));
   assert.ok(route.indexOf('runReservedAiOperation({') < route.indexOf('createStructuredResponse({'));

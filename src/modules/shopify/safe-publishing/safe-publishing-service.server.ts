@@ -7,6 +7,7 @@ import { createMerchantPreferenceRegistry } from '../../merchant-preferences/def
 import { prismaMerchantBusinessProfileRepository } from '../../merchant-preferences/prisma-repository.server';
 import { getEffectiveMerchantPreferences } from '../../merchant-preferences/service';
 import type { ListingDraft } from '../../listing-draft/domain/contracts';
+import { productEvidenceIsCurrent } from '../../products/analysis/analysis-state';
 import { requestShopifyAdminApi } from '../admin/admin-api-client.server';
 import { listShopifyCatalog, fetchShopifyCatalogProduct } from '../catalog/catalog-service';
 import { normalizeShopifyProductSnapshot, shopifyProductSnapshotSchema } from '../catalog/snapshot';
@@ -49,7 +50,7 @@ async function resolvePublishingProject(userId: string, productId: string, conta
   const project = await prisma.product.findFirst({
     where: { id: productId, ...(containerProjectId ? { projectId: containerProjectId } : {}), archivedAt: null, workspace: { organization: { memberships: { some: { userId } } } } },
     select: {
-      id: true, projectId: true, workspaceId: true, version: true, status: true, generatedListing: true, seoData: true,
+      id: true, projectId: true, workspaceId: true, version: true, status: true, generatedListing: true, seoData: true, readinessData: true,
       workspace: { select: { organizationId: true, organization: { select: { memberships: { where: { userId }, take: 1, select: { role: true } } } }, shopifyStores: { where: { status: { in: ['CONNECTED', 'ACTIVE'] } }, take: 2, select: { id: true, workspaceId: true, status: true, shopDomain: true, shopName: true, accessTokenEncrypted: true } } } },
       shopifyProductPublication: { select: { shopifyProductId: true } },
       shopifyProductImportLink: { select: { id: true, status: true, workspaceId: true, shopifyStoreId: true, shopifyProductGid: true, shopifyProductLegacyId: true, sourceSnapshot: true, shopifyUpdatedAtAtImport: true } },
@@ -119,11 +120,11 @@ export async function prepareSafePublishingPlan(userId: string, projectId: strin
   const context = await resolvePublishingProject(userId, projectId, containerProjectId);
   const preferences = await getEffectiveMerchantPreferences(prismaMerchantBusinessProfileRepository, createMerchantPreferenceRegistry(), context.workspaceId);
   const draft = listingDraftFromProject(context.generatedListing);
-  const baseBlockers = eligibilityBlockers({ role: context.role, draft, projectVersion: context.version, connected: Boolean(context.store?.accessTokenEncrypted), preferences });
+  const baseBlockers = eligibilityBlockers({ role: context.role, draft, projectVersion: context.version, connected: Boolean(context.store?.accessTokenEncrypted), preferences, readinessData: context.readinessData });
   const linkage = verifyLinkage(context);
   if (context.storeCount > 1 && !context.shopifyProductImportLink) baseBlockers.push('Choose a Shopify store before preparing this product.');
   if (!linkage.valid && linkage.reason) baseBlockers.push(linkage.reason);
-  if (!draft || !context.store) return persistPlan(context, userId, draft, preferences, 'BLOCKED', [], baseBlockers, null, null, { result: 'INSUFFICIENT_IDENTITY', candidates: [], reviewed: false });
+  if (!draft || !context.store || !productEvidenceIsCurrent(context.readinessData)) return persistPlan(context, userId, draft, preferences, 'BLOCKED', [], baseBlockers, null, null, { result: 'INSUFFICIENT_IDENTITY', candidates: [], reviewed: false });
 
   const now = new Date();
   let mode: ShopifyPublishingPlanPayload['mode'] = context.shopifyProductImportLink ? 'UPDATE_EXISTING' : request.intent === 'CREATE_NEW' ? 'CREATE_NEW' : 'BLOCKED';
@@ -200,6 +201,7 @@ export async function getSafePublishingPlan(userId: string, projectId: string, p
     planProductVersion: record.projectVersion,
     currentDraft,
     planDraftFingerprint: record.draftFingerprint,
+    readinessData: context.readinessData,
   });
   // A workspace navigation without an explicit immutable plan ID must not bind
   // the merchant to blockers captured before the Product draft was saved.
@@ -212,6 +214,7 @@ export async function saveSafePublishingReview(userId: string, projectId: string
   const input = publishingPlanSelectionSchema.parse(untrusted);
   const context = await resolvePublishingProject(userId, projectId, containerProjectId);
   if (context.role !== 'OWNER') throw new SafePublishingError('PUBLISHING_FORBIDDEN', 403, 'Only the workspace owner can save publishing decisions.');
+  if (!productEvidenceIsCurrent(context.readinessData)) throw new SafePublishingError('PLAN_STALE', 409, 'Analyze the current product information and generate a new listing before reviewing Shopify changes. Your previous work is preserved.');
   const record = await prisma.shopifyPublishingPlan.findFirst({ where: { id: input.planId, productId: projectId, projectId: context.projectId, workspaceId: context.workspaceId } });
   if (!record || record.status !== 'OPEN' || record.expiresAt <= new Date()) throw new SafePublishingError('PLAN_STALE', 409, 'Refresh the comparison before saving your review.');
   const plan = record.payload as unknown as ShopifyPublishingPlanPayload;
@@ -227,6 +230,7 @@ export async function executeSafePublishingPlan(userId: string, projectId: strin
   const input = publishingPlanSelectionSchema.parse(untrusted);
   const context = await resolvePublishingProject(userId, projectId, containerProjectId);
   if (context.role !== 'OWNER') throw new SafePublishingError('PUBLISHING_FORBIDDEN', 403, 'Only the workspace owner can publish Shopify changes.');
+  if (!productEvidenceIsCurrent(context.readinessData)) throw new SafePublishingError('PLAN_STALE', 409, 'Analyze the current product information and generate a new listing before publishing. Your previous work is preserved.');
   const record = await prisma.shopifyPublishingPlan.findFirst({ where: { id: input.planId, productId: projectId, projectId: context.projectId, workspaceId: context.workspaceId } });
   if (!record) throw new SafePublishingError('PLAN_NOT_FOUND', 404, 'The publishing plan is unavailable.');
   if (record.status !== 'OPEN' || record.expiresAt <= new Date()) throw new SafePublishingError('PLAN_STALE', 409, 'Refresh the comparison before publishing.');

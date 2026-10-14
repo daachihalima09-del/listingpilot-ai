@@ -68,10 +68,10 @@ test('top-level tabs own listing, evidence, Shopify preview and advanced control
   assert.match(review, /Product Intelligence &amp; Diagnostics/u);
 });
 
-test('one primary CTA is derived from workflow state and legacy tools stay collapsed', () => {
+test('one primary CTA is derived from workflow state and recovery opens source controls only when needed', () => {
   for (const label of ['Analyze Product', 'Generate Listing', 'Review Listing', 'Prepare for Shopify']) assert.match(source, new RegExp(label));
   assert.match(source, /Open technical and legacy tools/);
-  assert.doesNotMatch(source, /<details[^>]+open/);
+  assert.match(source, /open=\{analysisNeedsRefresh \|\| canPasteAfterAccessDenied \|\| undefined\}/);
   assert.match(source, /publishingReviewComplete/);
   assert.match(source, /onOpenListing=\{\(\) => selectWorkspaceTab\('LISTING'\)\}/);
   assert.match(source, /onContinue=\{\(\) => selectWorkspaceTab\('IMAGES'\)\}/);
@@ -134,13 +134,12 @@ test('primary generation errors use merchant language without validator internal
   assert.doesNotMatch(draftRouteErrors, /visibly match every cited selected fact/);
 });
 
-test('editing a Product source invalidates old analysis and listing authority before autosave', () => {
-  assert.match(source, /const invalidateDerivedProductState = \(\) =>/u);
-  assert.match(source, /setAnalysisStarted\(false\)/u);
-  assert.match(source, /setAnalysisContext\(null\)/u);
-  assert.match(source, /setListingDraft\(null\)/u);
-  assert.match(source, /setGenerationEligibility\(null\)/u);
-  assert.match(source, /normalizedValue !== supplierUrl\) invalidateDerivedProductState\(\)/u);
-  assert.match(source, /normalizedValue !== productUrl\) invalidateDerivedProductState\(\)/u);
-  assert.match(source, /value !== specText\) invalidateDerivedProductState\(\)/u);
+test('editing a Product source preserves prior work and blocks stale evidence', () => {
+  assert.doesNotMatch(source, /invalidateDerivedProductState|setAnalysisStarted\(false\)|setListingDraft\(null\)/u);
+  assert.match(source, /sourceHasChanged\(analyzedSource, sourceState\)/u);
+  assert.match(source, /analysisPending: analysisNeedsRefresh/u);
+  assert.match(source, /&& !analysisNeedsRefresh/u);
+  assert.match(source, /normalizedValue !== supplierUrl && analysisStarted\) setPersistedAnalysisPending\(true\)/u);
+  assert.match(source, /normalizedValue !== productUrl && analysisStarted\) setPersistedAnalysisPending\(true\)/u);
+  assert.match(source, /value !== specText && analysisStarted\) setPersistedAnalysisPending\(true\)/u);
 });

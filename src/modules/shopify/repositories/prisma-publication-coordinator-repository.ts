@@ -2,6 +2,7 @@ import 'server-only';
 
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { productEvidenceIsCurrent } from '../../products/analysis/analysis-state';
 import {
   projectAnalysisDataSchema,
   projectGeneratedListingSchema,
@@ -49,7 +50,7 @@ function productInput(project: {
   const seo = projectSeoDataSchema.safeParse(project.seoData);
   const analysis = projectAnalysisDataSchema.safeParse(project.analysisData);
   const readiness = projectReadinessDataSchema.safeParse(project.readinessData);
-  if (!listing.success || !seo.success || !analysis.success || !readiness.success) {
+  if (!listing.success || !seo.success || !analysis.success || !readiness.success || !productEvidenceIsCurrent(project.readinessData)) {
     return { input: null, ready: false };
   }
   const input = mapListingToShopifyProduct({

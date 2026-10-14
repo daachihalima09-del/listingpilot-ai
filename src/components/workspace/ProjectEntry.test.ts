@@ -93,7 +93,7 @@ test('entry supports a Product link and Analyze Product then reveals the workspa
   assert.match(input, /Product link/);
   assert.match(input, /type="url"/);
   assert.match(input, /Analyze Product/);
-  assert.match(workspace, /startPipeline[\s\S]*setAnalysisStarted\(true\)/);
+  assert.match(workspace, /projectSave\.adoptExternalSave\(saved\.version, savedSnapshot\)[\s\S]*setAnalysisStarted\(true\)/);
   assert.match(workspace, /showProjectEntry \? \(/);
   assert.match(workspace, /role="tablist"/);
 });

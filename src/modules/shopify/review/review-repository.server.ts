@@ -3,6 +3,7 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { productEvidenceIsCurrent } from '../../products/analysis/analysis-state';
 import { shopifyProductSnapshotSchema } from '../catalog/snapshot';
 import type { ShopifyChangeReviewPayload } from './review-types';
 import { ShopifyReviewError } from './review-errors';
@@ -23,6 +24,7 @@ export async function resolveReviewProject(userId: string, projectId: string) {
       version: true,
       generatedListing: true,
       seoData: true,
+      readinessData: true,
       shopifyVariantConfiguration: {
         select: {
           variants: {
@@ -109,6 +111,9 @@ export async function resolveReviewProject(userId: string, projectId: string) {
   const membership = project?.workspace.organization.memberships[0];
   if (!project || !membership) {
     throw new ShopifyReviewError('WORKSPACE_FORBIDDEN', 404, 'The requested review is unavailable.');
+  }
+  if (!productEvidenceIsCurrent(project.readinessData)) {
+    throw new ShopifyReviewError('REVIEW_STALE', 409, 'Analyze the current product information and generate a new listing before reviewing Shopify changes. Your previous work is preserved.');
   }
   const link = project.shopifyProductImportLink;
   if (!link) {

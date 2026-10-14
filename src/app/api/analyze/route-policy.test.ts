@@ -17,7 +17,7 @@ test('analysis authenticates before configuration, request parsing, URL extracti
 
 test('analysis validates the authorized Product before extraction or provider work and keeps optimistic concurrency', async () => {
   const source = await readFile(new URL('./route.ts', import.meta.url), 'utf8');
-  const productLookup = source.indexOf('getUserProduct(user.id, productLookupIdentity(parsedRequest.productIdentity))');
+  const productLookup = source.indexOf('requireUserProductAnalysisAccess(user.id, productLookupIdentity(parsedRequest.productIdentity))');
   const versionCheck = source.indexOf('product.version !== parsedRequest.productIdentity.version');
   const extraction = source.indexOf('extractProductPage(');
   const provider = source.indexOf('createStructuredResponse(');

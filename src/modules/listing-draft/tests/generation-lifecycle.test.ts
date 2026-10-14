@@ -95,7 +95,8 @@ test('generation readiness makes Listing generated and Review ready without mark
 test('workspace renders no project listing editor without an authoritative draft and reconciles persisted responses', async () => {
   const source = await readFile(new URL('../../../components/workspace/ListingWorkspace.tsx', import.meta.url), 'utf8');
   assert.equal(source.includes('!listingDraft ? <GeneratedListing'), false);
-  assert.match(source, /initialProject[\s\S]*listingDraft \? current : emptyListingContent[\s\S]*: listing/);
+  assert.match(source, /const saved = analysis\.savedProduct/);
+  assert.doesNotMatch(source, /setListingContent\(analysis\.listing\)/);
   assert.match(source, /generatedListing: persistedDraftFields\?\.generatedListing \?\? null/);
   assert.match(source, /version: projectSave\.currentVersion/);
   assert.match(source, /projectSave\.adoptExternalSave\(response\.project\.version, savedSnapshot\)/);

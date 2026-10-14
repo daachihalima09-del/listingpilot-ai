@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
 import { test } from 'node:test';
+import ts from 'typescript';
 import type { EffectiveMerchantPreferences } from '../../merchant-preferences/effective-preferences.ts';
 import type { ListingDraft } from '../../listing-draft/domain/contracts.ts';
 import { assessDuplicateProducts, identityFromDraft } from './duplicate-assessment.ts';
 import { changesFromReview, eligibilityBlockers, finalizePlan, isPublishingPlanContentCurrent, publishingDraftFingerprint, validatePlanSelection, type ShopifyPublishingPlanPayload } from './publishing-plan.ts';
 import type { ShopifyChangeReviewPayload } from '../review/review-types.ts';
+import * as publishingPlan from './publishing-plan.ts';
+import type { SafePublishingError as SafePublishingErrorType } from './safe-publishing-error.ts';
+import { productEvidenceIsCurrent } from '../../products/analysis/analysis-state.ts';
 
 const reviewedSections = ['TITLE', 'OVERVIEW', 'SPECIFICATIONS', 'FEATURES', 'SEO', 'CATALOG'] as const;
 function draft(overrides: Partial<ListingDraft> = {}): ListingDraft {
@@ -41,6 +46,92 @@ test('eligibility requires owner, saved and reviewed draft, connected Shopify, c
 test('draft fingerprints are deterministic and change with saved content', () => {
   assert.equal(publishingDraftFingerprint(draft()), publishingDraftFingerprint(draft()));
   assert.notEqual(publishingDraftFingerprint(draft()), publishingDraftFingerprint(draft({ title: { value: 'Changed', factIds: ['fact-model'] } })));
+});
+
+test('preserved drafts cannot prepare or remain fresh while their source evidence is pending or replaced', () => {
+  const saved = draft();
+  for (const readinessData of [{ analysisPending: true }, { listingEvidenceStale: true }]) {
+    const input = { role: 'OWNER', draft: saved, projectVersion: 4, connected: true, preferences, readinessData };
+    assert.ok(eligibilityBlockers(input).some((message) => /analyz|evidence|new listing/iu.test(message)));
+    assert.equal(isPublishingPlanContentCurrent({
+      productVersion: 4,
+      planProductVersion: 4,
+      currentDraft: saved,
+      planDraftFingerprint: publishingDraftFingerprint(saved),
+      readinessData,
+    } as Parameters<typeof isPublishingPlanContentCurrent>[0]), false);
+  }
+  assert.equal(saved.status, 'SAVED');
+  assert.equal(saved.title.value, 'Samsung Q80D Television');
+});
+
+test('server preparation and execution reject preserved stale evidence before contacting Shopify', async () => {
+  const saved = draft();
+  const errors = { exports: {} as { SafePublishingError: typeof SafePublishingErrorType } };
+  runInNewContext(ts.transpileModule(readFileSync(new URL('./safe-publishing-error.ts', import.meta.url), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText, { exports: errors.exports, module: errors, Error });
+  const { SafePublishingError } = errors.exports;
+  for (const readinessData of [{ analysisPending: true }, { listingEvidenceStale: true }]) {
+    let externalCalls = 0;
+    const forbiddenExternal = () => { externalCalls += 1; throw new Error('Unexpected external call'); };
+    const product = {
+      id: 'product-a', projectId: 'project', workspaceId: 'workspace', version: 4,
+      generatedListing: { listingDraft: saved }, readinessData,
+      shopifyProductImportLink: null, shopifyProductPublication: null,
+      workspace: {
+        organizationId: 'organization', organization: { memberships: [{ role: 'OWNER' }] },
+        shopifyStores: [{ id: 'store', workspaceId: 'workspace', status: 'CONNECTED', shopDomain: 'example.myshopify.com', shopName: 'Example', accessTokenEncrypted: 'synthetic-present' }],
+      },
+    };
+    const transaction = {
+      shopifyPublishingPlan: {
+        async updateMany() { return { count: 1 }; },
+        async create({ data }: { data: Record<string, unknown> }) { return { id: 'plan-a', status: 'OPEN', ...data }; },
+      },
+      auditLog: { async create() { return {}; } },
+    };
+    const prisma = {
+      product: { async findFirst() { return product; } },
+      async $transaction(operation: (tx: typeof transaction) => Promise<unknown>) { return operation(transaction); },
+    };
+    const dependencies: Record<string, unknown> = {
+      'server-only': {}, '@prisma/client': { Prisma: {} }, zod: { z: (await import('zod')).z }, '@/lib/prisma': { prisma },
+      '../../merchant-preferences/default-registry': { createMerchantPreferenceRegistry: () => ({}) },
+      '../../merchant-preferences/prisma-repository.server': { prismaMerchantBusinessProfileRepository: {} },
+      '../../merchant-preferences/service': { getEffectiveMerchantPreferences: async () => preferences },
+      '../../products/analysis/analysis-state': { productEvidenceIsCurrent },
+      '../admin/admin-api-client.server': { requestShopifyAdminApi: forbiddenExternal },
+      '../catalog/catalog-service': { listShopifyCatalog: forbiddenExternal, fetchShopifyCatalogProduct: forbiddenExternal },
+      '../catalog/snapshot': {}, '../config': {}, '../review/review-engine': {}, '../review/review-normalization': {},
+      '../publishing/publication-operations.server': { publishUserShopifyProject: forbiddenExternal },
+      '../products/product-validation': {}, '../content/shopify-description': { assembleShopifyListing: () => null },
+      './duplicate-assessment': { identityFromDraft }, './publishing-plan': publishingPlan,
+      './safe-publishing-error': { SafePublishingError }, './core-field-publishing': {},
+    };
+    const source = readFileSync(new URL('./safe-publishing-service.server.ts', import.meta.url), 'utf8');
+    const compiledModule = { exports: {} as Record<string, (...args: unknown[]) => Promise<unknown>> };
+    runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, {
+      exports: compiledModule.exports, module: compiledModule, require(name: string) {
+        if (!(name in dependencies)) throw new Error(`Unexpected dependency: ${name}`);
+        return dependencies[name];
+      }, Date, Map, Set, Object, Array,
+    });
+    const prepared = await compiledModule.exports.prepareSafePublishingPlan!('owner', 'product-a', { intent: 'CREATE_NEW' }, 'project') as { plan: { mode: string; blockers: string[] } };
+    assert.equal(prepared.plan.mode, 'BLOCKED');
+    assert.ok(prepared.plan.blockers.some((message) => /Analyze/iu.test(message)));
+    const selection = {
+      planId: '10000000-0000-4000-8000-000000000001', planVersion: 1,
+      planFingerprint: 'a'.repeat(64), selectedFieldIds: ['product.title'],
+      confirmations: ['CREATE_NEW_PRODUCT'], duplicateCandidateReviewed: false,
+    };
+    for (const action of ['saveSafePublishingReview', 'executeSafePublishingPlan']) {
+      await assert.rejects(compiledModule.exports[action]!('owner', 'product-a', selection, 'project'),
+        (error: unknown) => error instanceof SafePublishingError && error.code === 'PLAN_STALE' && error.statusCode === 409);
+    }
+    assert.equal(externalCalls, 0);
+    assert.equal(product.generatedListing.listingDraft, saved);
+  }
 });
 
 test('Product-scoped saved drafts make only their matching Product plan current', () => {
